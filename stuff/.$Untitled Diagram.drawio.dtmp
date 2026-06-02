@@ -1,4 +1,4 @@
-<mxfile host="Electron" modified="2026-06-02T08:59:52.807Z" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.6.1 Chrome/124.0.6367.207 Electron/30.0.6 Safari/537.36" etag="aorXyW32i_2pW78qtVZ9" version="24.6.1" type="device">
+<mxfile host="Electron" modified="2026-06-02T09:07:41.509Z" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.6.1 Chrome/124.0.6367.207 Electron/30.0.6 Safari/537.36" etag="7lsm7Z_WICnYsZ9ZPWlJ" version="24.6.1" type="device">
   <diagram name="Page-1" id="LNmN7VCRDfLvI4o1ZVcc">
     <mxGraphModel dx="963" dy="626" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
@@ -26,10 +26,10 @@
           <mxGeometry x="60" y="500" width="130" height="80" as="geometry" />
         </mxCell>
         <mxCell id="o0MHIYlyZVm12CJtSH9o-8" value="" style="sketch=0;aspect=fixed;pointerEvents=1;shadow=0;dashed=0;html=1;strokeColor=none;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;align=center;fillColor=#00188D;shape=mxgraph.azure.user" parent="o0MHIYlyZVm12CJtSH9o-7" vertex="1">
-          <mxGeometry x="41.5" y="10" width="37.6" height="40" as="geometry" />
+          <mxGeometry x="41.5" y="15" width="37.6" height="40" as="geometry" />
         </mxCell>
         <mxCell id="o0MHIYlyZVm12CJtSH9o-9" value="Research Agent" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="o0MHIYlyZVm12CJtSH9o-7" vertex="1">
-          <mxGeometry x="10" y="50" width="110" height="30" as="geometry" />
+          <mxGeometry x="10" y="55" width="110" height="30" as="geometry" />
         </mxCell>
         <mxCell id="o0MHIYlyZVm12CJtSH9o-11" value="" style="group" parent="1" vertex="1" connectable="0">
           <mxGeometry x="290" y="500" width="130" height="80" as="geometry" />
