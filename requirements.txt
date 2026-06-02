@@ -1,0 +1,5 @@
+langgraph
+langchain
+langchain-anthropic
+python-dotenv
+pydantic-settings
