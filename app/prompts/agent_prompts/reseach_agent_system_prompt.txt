@@ -26,6 +26,7 @@ Rules:
 - One output object per input trend (same order as input when possible).
 - Preserve the input "category" on each output item.
 - Use only facts from the provided input (topic, category, description, top_items, sources, entities, keywords).
-- img_urls: collect from top_items[].image, top_items[].images, and any other image fields; omit nulls; use [] if none exist.
+- img_urls: REQUIRED when images exist in input. Collect from top_items[].image, top_items[].images, and any other image fields; omit nulls only.
+- If the source trend has no usable image URL, omit that topic from the output (do not return items with empty img_urls).
 - Do not invent headlines, URLs, or images.
 - Do not wrap JSON in markdown or extra text.

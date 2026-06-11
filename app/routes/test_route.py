@@ -65,7 +65,7 @@ def test_publishing_agent(body: PublishTestRequest):
         raise HTTPException(status_code=400, detail="Provide either items or batch_id")
 
     try:
-        publisher = PublishingAgent()
+        publisher = PublishingAgent(dry_run=True)
         if body.batch_id:
             result = publisher.publish_batch(body.batch_id)
         else:
@@ -88,6 +88,7 @@ def test_pipeline(body: PipelineRequest | None = None):
         result = run_content_pipeline(
             trend_prompt=request.trend_prompt,
             publish=request.publish,
+            publish_dry_run=request.publish,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

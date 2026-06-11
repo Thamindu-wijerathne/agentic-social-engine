@@ -67,6 +67,7 @@ class ContentPipeline:
         self,
         trend_prompt: str | None = None,
         publish: bool = False,
+        publish_dry_run: bool = False,
     ) -> PipelineResult:
         prompt = trend_prompt or DEFAULT_TREND_PROMPT
         steps = ["trend", "reseach", "content_writer"]
@@ -84,7 +85,7 @@ class ContentPipeline:
 
         publishing: dict[str, Any] | None = None
         if publish:
-            publisher = self._publishing_agent or PublishingAgent()
+            publisher = self._publishing_agent or PublishingAgent(dry_run=publish_dry_run)
             publishing = publisher.publish_items(
                 content.get("items", []),
                 source_batch_id=content.get("batch_id"),
@@ -104,9 +105,14 @@ class ContentPipeline:
 def run_content_pipeline(
     trend_prompt: str | None = None,
     publish: bool = False,
+    publish_dry_run: bool = False,
 ) -> dict[str, Any]:
     try:
-        result = ContentPipeline().run(trend_prompt=trend_prompt, publish=publish)
+        result = ContentPipeline().run(
+            trend_prompt=trend_prompt,
+            publish=publish,
+            publish_dry_run=publish_dry_run,
+        )
     except FacebookConnectorError as exc:
         raise ValueError(f"Publishing failed: {exc}") from exc
     return result.to_dict()

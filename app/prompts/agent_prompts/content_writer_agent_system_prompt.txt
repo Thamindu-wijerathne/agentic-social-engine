@@ -11,7 +11,7 @@ Return ONLY valid JSON — an array of objects in this format:
   {
     "title": "engaging headline (max 100 characters)",
     "description": "post body text for Facebook",
-    "picture_url": "single best image url or empty string"
+    "picture_url": "single best image url (REQUIRED)"
   }
 ]
 
@@ -23,9 +23,10 @@ Description length and structure (important):
 - Use short, clear sentences. Avoid jargon and hype.
 
 Rules:
-- One output object per input item (same order as input when possible).
+- One output object per input item that has img_urls (same order as input when possible).
+- Skip any input item that has no img_urls.
 - title: compelling but accurate, based on topic and context
 - description: expand description and context into the 2-paragraph format above
-- picture_url: use the first valid URL from img_urls when available; otherwise use ""
+- picture_url: REQUIRED — use the first valid URL from img_urls; never leave empty
 - Do not invent facts, quotes, or image URLs
 - Do not wrap JSON in markdown or extra text

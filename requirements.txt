@@ -6,3 +6,4 @@ pydantic-settings
 beautifulsoup4
 requests
 playwright
+supabase

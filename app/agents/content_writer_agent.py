@@ -35,11 +35,23 @@ class ContentWriterAgent:
                     start = text.find(start_char, start + 1)
         return None
 
+    @staticmethod
+    def _resolve_picture_url(item: dict[str, Any], research_item: dict[str, Any] | None) -> str:
+        picture_url = str(item.get("picture_url", item.get("image_url", ""))).strip()
+        if picture_url:
+            return picture_url
+
+        if research_item:
+            img_urls = research_item.get("img_urls") or []
+            if img_urls:
+                return str(img_urls[0]).strip()
+        return ""
+
     def _normalize_items(
         self,
         parsed: Any,
         research_items: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], list[str]]:
         if isinstance(parsed, dict):
             items = parsed.get("content") or parsed.get("items") or parsed.get("posts")
             if isinstance(items, list):
@@ -48,9 +60,10 @@ class ContentWriterAgent:
                 parsed = [parsed]
 
         if not isinstance(parsed, list):
-            return []
+            return [], []
 
         normalized: list[dict[str, Any]] = []
+        skipped_no_image: list[str] = []
         for index, item in enumerate(parsed):
             if not isinstance(item, dict):
                 continue
@@ -58,30 +71,35 @@ class ContentWriterAgent:
             if not title:
                 continue
 
-            picture_url = str(item.get("picture_url", item.get("image_url", ""))).strip()
-            if not picture_url and index < len(research_items):
-                img_urls = research_items[index].get("img_urls") or []
-                if img_urls:
-                    picture_url = str(img_urls[0])
+            research_item = research_items[index] if index < len(research_items) else None
+            picture_url = self._resolve_picture_url(item, research_item)
+            if not picture_url:
+                skipped_no_image.append(title)
+                logger.warning("ContentWriterAgent skipped item without picture_url title=%r", title[:80])
+                continue
 
             entry: dict[str, Any] = {
                 "title": title,
                 "description": str(item.get("description", "")).strip(),
                 "picture_url": picture_url,
             }
-            if index < len(research_items):
-                category = research_items[index].get("category")
+            if research_item:
+                category = research_item.get("category")
                 if category:
                     entry["category"] = category
             normalized.append(entry)
-        return normalized
+        return normalized, skipped_no_image
 
     @staticmethod
     def _slugify(text: str, max_len: int = 40) -> str:
         slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
         return slug[:max_len] or "post"
 
-    def _save_to_temp(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+    def _save_to_temp(
+        self,
+        items: list[dict[str, Any]],
+        skipped_no_image: list[str] | None = None,
+    ) -> dict[str, Any]:
         batch_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         batch_dir = TEMP_CONTENT_DIR / batch_id
         batch_dir.mkdir(parents=True, exist_ok=True)
@@ -100,6 +118,7 @@ class ContentWriterAgent:
             "count": len(items),
             "items": items,
             "files": saved_files,
+            "skipped_no_image": skipped_no_image or [],
         }
         manifest_path = batch_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -111,6 +130,7 @@ class ContentWriterAgent:
             "manifest_path": str(manifest_path),
             "files": saved_files,
             "items": items,
+            "skipped_no_image": skipped_no_image or [],
         }
 
     def write_content(self, research_items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -133,11 +153,22 @@ class ContentWriterAgent:
             content = str(content)
 
         parsed = self._extract_json_payload(content)
-        items = self._normalize_items(parsed, research_items)
+        items, skipped_no_image = self._normalize_items(parsed, research_items)
         if not items:
-            logger.warning("ContentWriterAgent could not parse structured output")
-            return {"batch_id": None, "saved_dir": None, "manifest_path": None, "files": [], "items": []}
+            logger.warning(
+                "ContentWriterAgent no items with picture_url parsed=%s skipped=%d",
+                parsed is not None,
+                len(skipped_no_image),
+            )
+            return {
+                "batch_id": None,
+                "saved_dir": None,
+                "manifest_path": None,
+                "files": [],
+                "items": [],
+                "skipped_no_image": skipped_no_image,
+            }
 
-        result = self._save_to_temp(items)
+        result = self._save_to_temp(items, skipped_no_image=skipped_no_image)
         logger.info("ContentWriterAgent complete items=%d", len(items))
         return result

@@ -6,6 +6,7 @@ from typing import Any
 
 from app.agents.content_writer_agent import TEMP_CONTENT_DIR
 from app.connectors.fb_connector import FacebookConnector, FacebookConnectorError
+from app.repositories.published_posts_repository import get_published_posts_repository
 
 logger = logging.getLogger(__name__)
 
@@ -13,47 +14,124 @@ TEMP_PUBLISHED_DIR = Path(__file__).resolve().parent.parent.parent / "temp" / "p
 
 
 class PublishingAgent:
-    def __init__(self):
-        self.facebook = FacebookConnector()
+    def __init__(self, dry_run: bool = False):
+        self.dry_run = dry_run
+        self.facebook = FacebookConnector(dry_run=dry_run)
+        self.posts_repo = get_published_posts_repository()
 
-    def _build_message(self, item: dict[str, Any]) -> str:
-        title = str(item.get("title", "")).strip()
-        description = str(item.get("description", "")).strip()
-        if title and description:
-            return f"{title}\n\n{description}"
-        return title or description
+    def _trace_post(
+        self,
+        *,
+        facebook_post_id: str,
+        title: str,
+        description: str,
+        picture_url: str | None,
+        category: str | None,
+        content_batch_id: str | None,
+        publish_batch_id: str | None,
+    ) -> dict[str, Any] | None:
+        if not self.posts_repo:
+            return None
 
-    def publish_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        record = {
+            "facebook_post_id": facebook_post_id,
+            "title": title,
+            "description": description,
+            "picture_url": picture_url,
+            "category": category,
+            "content_batch_id": content_batch_id,
+            "publish_batch_id": publish_batch_id,
+            "status": "published",
+            "dry_run": self.dry_run,
+            "published_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            return self.posts_repo.insert_post(record)
+        except Exception as exc:
+            logger.warning("Failed to trace post in Supabase title=%r error=%s", title[:80], exc)
+            return None
+
+    def publish_item(
+        self,
+        item: dict[str, Any],
+        *,
+        content_batch_id: str | None = None,
+        publish_batch_id: str | None = None,
+    ) -> dict[str, Any]:
         title = str(item.get("title", "")).strip()
         if not title:
             raise ValueError("content item must include a title")
 
-        picture_url = str(item.get("picture_url", "")).strip() or None
+        description = str(item.get("description", ""))
+        picture_url = str(item.get("picture_url", "")).strip()
+        category = item.get("category")
+
+        if not picture_url:
+            logger.warning("PublishingAgent skipped missing picture_url title=%r", title[:80])
+            return {
+                "status": "failed",
+                "title": title,
+                "picture_url": None,
+                "category": category,
+                "error": "picture_url is required",
+            }
+
         logger.info("PublishingAgent publish_item title=%r", title[:80])
 
         try:
             fb_response = self.facebook.post_content(
                 title=title,
-                description=str(item.get("description", "")),
+                description=description,
                 picture_url=picture_url,
             )
-            return {
+            facebook_post_id = fb_response.get("id")
+            result = {
                 "status": "published",
                 "title": title,
                 "picture_url": picture_url,
-                "category": item.get("category"),
-                "facebook_post_id": fb_response.get("id"),
+                "category": category,
+                "id": facebook_post_id,
                 "facebook_response": fb_response,
             }
+            if facebook_post_id:
+                trace = self._trace_post(
+                    facebook_post_id=facebook_post_id,
+                    title=title,
+                    description=description,
+                    picture_url=picture_url,
+                    category=category,
+                    content_batch_id=content_batch_id,
+                    publish_batch_id=publish_batch_id,
+                )
+                if trace:
+                    result["supabase_id"] = trace.get("id")
+            return result
         except FacebookConnectorError as exc:
             logger.warning("PublishingAgent failed title=%r error=%s", title[:80], exc)
             return {
                 "status": "failed",
                 "title": title,
                 "picture_url": picture_url,
-                "category": item.get("category"),
+                "category": category,
                 "error": str(exc),
             }
+
+    def delete_post(self, facebook_post_id: str) -> dict[str, Any]:
+        logger.info("PublishingAgent delete_post id=%s", facebook_post_id)
+        fb_response = self.facebook.delete_post(facebook_post_id)
+
+        trace = None
+        if self.posts_repo:
+            try:
+                trace = self.posts_repo.mark_deleted(facebook_post_id)
+            except Exception as exc:
+                logger.warning("Failed to mark deleted in Supabase id=%s error=%s", facebook_post_id, exc)
+
+        return {
+            "facebook_post_id": facebook_post_id,
+            "facebook_response": fb_response,
+            "supabase": trace,
+        }
 
     def _save_publish_log(self, batch_id: str, results: list[dict[str, Any]]) -> dict[str, Any]:
         publish_batch_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -100,16 +178,27 @@ class PublishingAgent:
             raise ValueError(f"Content batch {batch_id} has no items")
         return batch_id, items
 
-    def publish_items(
-        self,
-        items: list[dict[str, Any]],
-        source_batch_id: str | None = None,
-    ) -> dict[str, Any]:
+    def publish_items(self, items: list[dict[str, Any]], source_batch_id: str | None = None) -> dict[str, Any]:
         logger.info("PublishingAgent publish_items count=%d", len(items))
-        results = [self.publish_item(item) for item in items]
-        return self._save_publish_log(source_batch_id or "inline", results)
+        publish_batch_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        results = [
+            self.publish_item(
+                item,
+                content_batch_id=source_batch_id,
+                publish_batch_id=publish_batch_id,
+            )
+            for item in items
+        ]
+        saved = self._save_publish_log(source_batch_id or "inline", results)
+        saved["publish_batch_id"] = publish_batch_id
+        return saved
 
     def publish_batch(self, batch_id: str) -> dict[str, Any]:
         logger.info("PublishingAgent publish_batch batch_id=%s", batch_id)
         source_batch_id, items = self._load_items_from_batch(batch_id)
         return self.publish_items(items, source_batch_id=source_batch_id)
+
+    def list_traced_posts(self, limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
+        if not self.posts_repo:
+            return []
+        return self.posts_repo.list_posts(limit=limit, status=status)

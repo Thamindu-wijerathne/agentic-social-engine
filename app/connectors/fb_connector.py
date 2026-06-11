@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 GRAPH_API_VERSION = "v21.0"
 GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+MOCK_FB_POST_RESPONSE = {"id": "926705803858447_122128144917179318"}
 
 
 class FacebookConnectorError(Exception):
@@ -22,16 +23,23 @@ class FacebookConnector:
         self,
         access_token: str | None = None,
         page_id: str | None = None,
+        dry_run: bool = False,
     ):
+        self.dry_run = dry_run
         self.access_token = access_token or settings.facebook_access_token
         self.page_id = page_id or settings.facebook_page_id
 
-        if not self.access_token:
-            raise FacebookConnectorError("facebook_access_token is not configured")
-        if not self.page_id:
-            raise FacebookConnectorError("facebook_page_id is not configured")
+        if not self.dry_run:
+            if not self.access_token:
+                raise FacebookConnectorError("facebook_access_token is not configured")
+            if not self.page_id:
+                raise FacebookConnectorError("facebook_page_id is not configured")
 
     def _post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.dry_run:
+            logger.info("Facebook dry_run post endpoint=%s", endpoint)
+            return dict(MOCK_FB_POST_RESPONSE)
+
         url = f"{GRAPH_API_BASE}/{self.page_id}/{endpoint}"
         data = {**payload, "access_token": self.access_token}
 
@@ -51,6 +59,37 @@ class FacebookConnector:
 
         logger.info("Facebook post complete post_id=%s", body.get("id"))
         return body
+
+    def delete_post(self, post_id: str) -> dict[str, Any]:
+        """Delete a Facebook post by Graph API post id."""
+        if self.dry_run:
+            logger.info("Facebook dry_run delete post_id=%s", post_id)
+            return {"success": True}
+
+        if not post_id.strip():
+            raise FacebookConnectorError("post_id cannot be empty")
+
+        url = f"{GRAPH_API_BASE}/{post_id.strip()}"
+        logger.info("Facebook delete start post_id=%s", post_id)
+        try:
+            response = requests.delete(
+                url,
+                params={"access_token": self.access_token},
+                timeout=30,
+            )
+            body = response.json() if response.content else {}
+        except requests.RequestException as exc:
+            logger.warning("Facebook delete request failed: %s", exc)
+            raise FacebookConnectorError(f"Facebook delete failed: {exc}") from exc
+
+        if not response.ok:
+            error = body.get("error", {}) if isinstance(body, dict) else {}
+            message = error.get("message", response.text)
+            logger.warning("Facebook delete rejected: %s", message)
+            raise FacebookConnectorError(f"Facebook API error: {message}")
+
+        logger.info("Facebook delete complete post_id=%s", post_id)
+        return body if body else {"success": True}
 
     def post_message(self, message: str) -> dict[str, Any]:
         """Publish a text-only post to the configured Facebook Page."""
@@ -76,15 +115,15 @@ class FacebookConnector:
         description: str,
         picture_url: str | None = None,
     ) -> dict[str, Any]:
-        """Publish content-writer output (title, description, optional picture)."""
+        """Publish content-writer output (title, description, required picture)."""
+        if not picture_url or not picture_url.strip():
+            raise FacebookConnectorError("picture_url is required for Facebook posts")
+
         parts = [title.strip()]
         if description.strip():
             parts.append(description.strip())
         message = "\n\n".join(parts)
-
-        if picture_url and picture_url.strip():
-            return self.post_photo(message, picture_url.strip())
-        return self.post_message(message)
+        return self.post_photo(message, picture_url.strip())
 
     def post_article(
         self,
