@@ -10,15 +10,22 @@ Return ONLY valid JSON — an array of objects in this format:
 [
   {
     "title": "engaging headline (max 100 characters)",
-    "description": "post body text for Facebook (2-4 short sentences, max 500 characters)",
+    "description": "post body text for Facebook",
     "picture_url": "single best image url or empty string"
   }
 ]
 
+Description length and structure (important):
+- Write exactly 2 paragraphs separated by a blank line (\n\n).
+- Medium length overall: about 120–180 words total (not too short, not a long article).
+- Paragraph 1: what happened — the main story and key facts.
+- Paragraph 2: why it matters — relevance, impact, or a thoughtful takeaway for older readers.
+- Use short, clear sentences. Avoid jargon and hype.
+
 Rules:
 - One output object per input item (same order as input when possible).
 - title: compelling but accurate, based on topic and context
-- description: combine key facts from description and context into readable post copy
+- description: expand description and context into the 2-paragraph format above
 - picture_url: use the first valid URL from img_urls when available; otherwise use ""
 - Do not invent facts, quotes, or image URLs
 - Do not wrap JSON in markdown or extra text

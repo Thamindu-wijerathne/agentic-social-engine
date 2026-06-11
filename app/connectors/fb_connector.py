@@ -70,6 +70,22 @@ class FacebookConnector:
             raise FacebookConnectorError("image_url cannot be empty")
         return self._post("photos", {"caption": message, "url": image_url})
 
+    def post_content(
+        self,
+        title: str,
+        description: str,
+        picture_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Publish content-writer output (title, description, optional picture)."""
+        parts = [title.strip()]
+        if description.strip():
+            parts.append(description.strip())
+        message = "\n\n".join(parts)
+
+        if picture_url and picture_url.strip():
+            return self.post_photo(message, picture_url.strip())
+        return self.post_message(message)
+
     def post_article(
         self,
         topic: str,
