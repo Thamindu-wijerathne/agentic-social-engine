@@ -3,3 +3,6 @@ langchain
 langchain-anthropic
 python-dotenv
 pydantic-settings
+beautifulsoup4
+requests
+playwright

@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # --- GNews API ---
     GNEWS_API_KEY: str
 
+    # --- Facebook ---
+    facebook_app_id: str | None = None
+    facebook_app_secret: str | None = None
+    facebook_access_token: str | None = None
+    facebook_page_id: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=_ENV_FILE,
         env_file_encoding="utf-8",

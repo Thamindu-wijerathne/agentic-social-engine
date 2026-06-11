@@ -6,6 +6,7 @@ from langchain.agents import create_agent
 
 from app.core.llm import main_llm
 from app.prompts.PromptManager import PromptManager
+from app.tools.trend_agent.animal_news_scraper_tool import animal_news_scraper_tool
 from app.tools.trend_agent.gnews_tool import gnews_tool
 from app.tools.trend_agent.googlenews_tool import googlenews_tool
 
@@ -44,7 +45,7 @@ class TrendAgent:
         logger.info("System prompt loaded (%d chars)", len(system_prompt))
         return create_agent(
             self.llm,
-            tools=[googlenews_tool, gnews_tool],
+            tools=[googlenews_tool, gnews_tool, animal_news_scraper_tool],
             system_prompt=system_prompt,
         )
 
@@ -95,7 +96,7 @@ class TrendAgent:
             normalized_item = {"topic": topic, "trend_score": trend_score}
 
             # Preserve useful metadata for downstream UI/rendering.
-            for key in ("status", "description", "mentions", "sources", "top_items", "entities", "keywords"):
+            for key in ("status", "description", "mentions", "sources", "top_items", "entities", "keywords", "category"):
                 if key in item:
                     normalized_item[key] = item[key]
 
