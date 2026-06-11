@@ -9,26 +9,10 @@ from app.agents.publishing_agent import PublishingAgent
 from app.agents.reseach_agent import ReseachAgent
 from app.agents.trend_agent import TrendAgent
 from app.connectors.fb_connector import FacebookConnectorError
+from app.pipelines.content_pipeline import DEFAULT_TREND_PROMPT, PipelineRequest, run_content_pipeline
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/test", tags=["test"])
-
-DEFAULT_TREND_PROMPT = (
-    "Build today's topic list for older US adults with exactly 5 items: "
-    "2 politics/public-affairs, 1 health, and 2 animal stories. "
-    "Use gnews_tool for politics and health, and animal_news_scraper_tool for animals."
-)
-
-
-class PipelineRequest(BaseModel):
-    trend_prompt: str | None = Field(
-        default=None,
-        description="Optional override for the trend agent input prompt",
-    )
-    publish: bool = Field(
-        default=False,
-        description="If true, publish content to Facebook after content writer step",
-    )
 
 
 class PublishTestRequest(BaseModel):
@@ -97,41 +81,16 @@ def test_publishing_agent(body: PublishTestRequest):
 
 @router.post("/pipeline")
 def test_pipeline(body: PipelineRequest | None = None):
-    """Run pipeline: Trend → Research → Content Writer → optional Publish."""
+    """Test full pipeline via ContentPipeline service."""
     request = body or PipelineRequest()
-    trend_prompt = request.trend_prompt or DEFAULT_TREND_PROMPT
     logger.info("/test/pipeline start publish=%s", request.publish)
+    try:
+        result = run_content_pipeline(
+            trend_prompt=request.trend_prompt,
+            publish=request.publish,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    trend_agent = TrendAgent()
-    trends = trend_agent.run_agent(trend_prompt)
-    logger.info("/test/pipeline trend done count=%d", len(trends))
-
-    reseach_agent = ReseachAgent()
-    research = reseach_agent.reseach_trends(trends)
-    logger.info("/test/pipeline reseach done count=%d", len(research))
-
-    content_writer = ContentWriterAgent()
-    content = content_writer.write_content(research)
-    logger.info("/test/pipeline content_writer done batch_id=%s", content.get("batch_id"))
-
-    response: dict[str, Any] = {
-        "pipeline": ["trend", "reseach", "content_writer"],
-        "trends": {"count": len(trends), "items": trends},
-        "research": {"count": len(research), "items": research},
-        "content": content,
-    }
-
-    if request.publish:
-        try:
-            publisher = PublishingAgent()
-            publish_result = publisher.publish_items(
-                content.get("items", []),
-                source_batch_id=content.get("batch_id"),
-            )
-            response["pipeline"].append("publishing")
-            response["publishing"] = publish_result
-            logger.info("/test/pipeline publish done published=%d", publish_result.get("published", 0))
-        except (FacebookConnectorError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=f"Publishing failed: {exc}") from exc
-
-    return response
+    logger.info("/test/pipeline done steps=%s", result.get("pipeline"))
+    return result

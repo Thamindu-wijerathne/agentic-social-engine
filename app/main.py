@@ -3,6 +3,7 @@ import time
 
 from fastapi import FastAPI, Request
 
+from app.routes.pipeline_route import router as pipeline_router
 from app.routes.publish_route import router as publish_router
 from app.routes.scraper_route import router as scraper_router
 from app.routes.test_route import router as test_router
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 app.include_router(test_router)
+app.include_router(pipeline_router)
 app.include_router(publish_router)
 app.include_router(scraper_router)
 
