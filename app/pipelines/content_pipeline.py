@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.content_writer_agent import ContentWriterAgent
 from app.agents.publishing_agent import PublishingAgent
-from app.agents.reseach_agent import ReseachAgent
+from app.agents.research_agent import ResearchAgent
 from app.agents.trend_agent import TrendAgent
 from app.connectors.fb_connector import FacebookConnectorError
 from app.core.token_usage import PipelineTokenUsage, log_token_usage
@@ -70,12 +70,12 @@ class ContentPipeline:
     def __init__(
         self,
         trend_agent: TrendAgent | None = None,
-        reseach_agent: ReseachAgent | None = None,
+        research_agent: ResearchAgent | None = None,
         content_writer: ContentWriterAgent | None = None,
         publishing_agent: PublishingAgent | None = None,
     ):
         self.trend_agent = trend_agent or TrendAgent()
-        self.reseach_agent = reseach_agent or ReseachAgent()
+        self.research_agent = research_agent or ResearchAgent()
         self.content_writer = content_writer or ContentWriterAgent()
         self._publishing_agent = publishing_agent
 
@@ -87,7 +87,7 @@ class ContentPipeline:
         run_source: str = "pipeline",
     ) -> PipelineResult:
         prompt = trend_prompt or DEFAULT_TREND_PROMPT
-        steps = ["trend", "reseach", "content_writer"]
+        steps = ["trend", "research", "content_writer"]
 
         logger.info("ContentPipeline start publish=%s", publish)
         usage_tracker = PipelineTokenUsage()
@@ -96,9 +96,9 @@ class ContentPipeline:
         usage_tracker.add_agent("trend", self.trend_agent.last_token_usage)
         logger.info("ContentPipeline trend done count=%d", len(trends))
 
-        research = self.reseach_agent.reseach_trends(trends)
-        usage_tracker.add_agent("reseach", self.reseach_agent.last_token_usage)
-        logger.info("ContentPipeline reseach done count=%d", len(research))
+        research = self.research_agent.research_trends(trends)
+        usage_tracker.add_agent("research", self.research_agent.last_token_usage)
+        logger.info("ContentPipeline research done count=%d", len(research))
 
         content = self.content_writer.write_content(research)
         usage_tracker.add_agent("content_writer", self.content_writer.last_token_usage)

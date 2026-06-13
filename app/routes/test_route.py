@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.content_writer_agent import ContentWriterAgent
 from app.agents.publishing_agent import PublishingAgent
-from app.agents.reseach_agent import ReseachAgent
+from app.agents.research_agent import ResearchAgent
 from app.agents.trend_agent import TrendAgent
 from app.connectors.fb_connector import FacebookConnectorError
 from app.pipelines.content_pipeline import DEFAULT_TREND_PROMPT, PipelineRequest, run_content_pipeline
@@ -37,14 +37,14 @@ def test_trend_agent():
     return {"agent": "trend", "count": len(response), "items": response, "token_usage": trend_agent.last_token_usage.to_dict()}
 
 
-@router.post("/reseach-agent")
-def test_reseach_agent(trends: list[dict[str, Any]] = Body(...)):
-    """Test ReseachAgent only. Body: trend agent output."""
-    logger.info("/test/reseach-agent start trends=%d", len(trends))
-    reseach_agent = ReseachAgent()
-    response = reseach_agent.reseach_trends(trends)
-    logger.info("/test/reseach-agent done count=%d", len(response))
-    return {"agent": "reseach", "count": len(response), "items": response, "token_usage": reseach_agent.last_token_usage.to_dict()}
+@router.post("/research-agent")
+def test_research_agent(trends: list[dict[str, Any]] = Body(...)):
+    """Test ResearchAgent only. Body: trend agent output."""
+    logger.info("/test/research-agent start trends=%d", len(trends))
+    research_agent = ResearchAgent()
+    response = research_agent.research_trends(trends)
+    logger.info("/test/research-agent done count=%d", len(response))
+    return {"agent": "research", "count": len(response), "items": response, "token_usage": research_agent.last_token_usage.to_dict()}
 
 
 @router.post("/content-writer-agent")

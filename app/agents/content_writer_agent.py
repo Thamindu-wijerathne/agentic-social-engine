@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.core.json_utils import extract_json_payload
 from app.core.llm import main_llm
 from app.core.token_usage import TokenUsage, extract_usage_from_message, log_token_usage
 from app.prompts.PromptManager import PromptManager
@@ -13,29 +14,18 @@ logger = logging.getLogger(__name__)
 
 TEMP_CONTENT_DIR = Path(__file__).resolve().parent.parent.parent / "temp" / "content"
 
+DEFAULT_CATEGORY_HASHTAGS: dict[str, list[str]] = {
+    "politics": ["#USPolitics", "#BreakingNews", "#TrendingInUS", "#USNews"],
+    "health": ["#USHealth", "#HealthNews", "#TrendingInUS", "#Medicare"],
+    "animals": ["#AnimalNews", "#GoodNews", "#TrendingInUS", "#Wildlife"],
+}
+
 
 class ContentWriterAgent:
     def __init__(self):
         self.llm = main_llm
         self.system_prompt = PromptManager.get("agent_prompts", "content_writer_agent_system_prompt")
         self.last_token_usage = TokenUsage()
-
-    def _extract_json_payload(self, text: str) -> Any:
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        decoder = json.JSONDecoder()
-        for start_char in ("[", "{"):
-            start = text.find(start_char)
-            while start != -1:
-                try:
-                    obj, _ = decoder.raw_decode(text[start:])
-                    return obj
-                except json.JSONDecodeError:
-                    start = text.find(start_char, start + 1)
-        return None
 
     @staticmethod
     def _resolve_picture_url(item: dict[str, Any], research_item: dict[str, Any] | None) -> str:
@@ -48,6 +38,40 @@ class ContentWriterAgent:
             if img_urls:
                 return str(img_urls[0]).strip()
         return ""
+
+    @staticmethod
+    def _ensure_hashtag(tag: str) -> str:
+        cleaned = re.sub(r"\s+", "", str(tag).strip().lstrip("#"))
+        if not cleaned:
+            return ""
+        return f"#{cleaned}"
+
+    def _normalize_hashtags(
+        self,
+        raw: Any,
+        research_item: dict[str, Any] | None,
+    ) -> list[str]:
+        tags: list[str] = []
+        if isinstance(raw, str):
+            candidates = re.split(r"[\s,]+", raw.strip())
+        elif isinstance(raw, list):
+            candidates = raw
+        else:
+            candidates = []
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            tag = self._ensure_hashtag(candidate)
+            key = tag.lower()
+            if tag and key not in seen:
+                seen.add(key)
+                tags.append(tag)
+
+        if not tags and research_item:
+            category = str(research_item.get("category", "")).lower()
+            tags = list(DEFAULT_CATEGORY_HASHTAGS.get(category, ["#USNews", "#TrendingInUS"]))
+
+        return tags[:8]
 
     def _normalize_items(
         self,
@@ -84,6 +108,7 @@ class ContentWriterAgent:
                 "title": title,
                 "description": str(item.get("description", "")).strip(),
                 "picture_url": picture_url,
+                "hashtags": self._normalize_hashtags(item.get("hashtags"), research_item),
             }
             if research_item:
                 category = research_item.get("category")
@@ -156,7 +181,7 @@ class ContentWriterAgent:
         else:
             content = str(content)
 
-        parsed = self._extract_json_payload(content)
+        parsed = extract_json_payload(content)
         items, skipped_no_image = self._normalize_items(parsed, research_items)
         if not items:
             logger.warning(

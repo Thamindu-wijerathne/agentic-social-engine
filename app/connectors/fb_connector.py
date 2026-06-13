@@ -127,14 +127,23 @@ class FacebookConnector:
         title: str,
         description: str,
         picture_url: str | None = None,
+        hashtags: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Publish content-writer output (title, description, required picture)."""
+        """Publish content-writer output (title, description, required picture, optional hashtags)."""
         if not picture_url or not picture_url.strip():
             raise FacebookConnectorError("picture_url is required for Facebook posts")
 
         parts = [title.strip()]
         if description.strip():
             parts.append(description.strip())
+        if hashtags:
+            tag_line = " ".join(
+                tag if tag.startswith("#") else f"#{tag.lstrip('#')}"
+                for tag in hashtags
+                if str(tag).strip()
+            )
+            if tag_line:
+                parts.append(tag_line)
         message = "\n\n".join(parts)
         return self.post_photo(message, picture_url.strip())
 

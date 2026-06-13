@@ -1,9 +1,9 @@
 import logging
-import json
 from typing import Any
 
 from langchain.agents import create_agent
 
+from app.core.json_utils import extract_json_payload
 from app.core.llm import main_llm
 from app.core.token_usage import TokenUsage, extract_usage_from_agent_response, extract_usage_from_message, log_token_usage
 from app.prompts.PromptManager import PromptManager
@@ -51,25 +51,6 @@ class TrendAgent:
             system_prompt=system_prompt,
         )
 
-    def _extract_json_payload(self, text: str) -> Any:
-        # Try direct parse first.
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        # Fallback: parse first JSON array/object embedded in free text.
-        decoder = json.JSONDecoder()
-        for start_char in ("[", "{"):
-            start = text.find(start_char)
-            while start != -1:
-                try:
-                    obj, _ = decoder.raw_decode(text[start:])
-                    return obj
-                except json.JSONDecodeError:
-                    start = text.find(start_char, start + 1)
-        return None
-
     def _extract_topic_scores(self, response: dict[str, Any]) -> list[dict[str, Any]]:
         messages = response.get("messages", [])
         if not messages:
@@ -79,7 +60,7 @@ class TrendAgent:
         if not isinstance(last_content, str):
             last_content = str(last_content)
 
-        parsed = self._extract_json_payload(last_content)
+        parsed = extract_json_payload(last_content)
         if parsed is None:
             logger.warning("Could not parse agent output as JSON payload")
             return []

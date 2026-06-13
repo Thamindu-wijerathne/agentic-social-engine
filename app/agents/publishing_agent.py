@@ -27,6 +27,7 @@ class PublishingAgent:
         description: str,
         picture_url: str | None,
         category: str | None,
+        hashtags: list[str] | None,
         content_batch_id: str | None,
         publish_batch_id: str | None,
     ) -> dict[str, Any] | None:
@@ -39,6 +40,7 @@ class PublishingAgent:
             "description": description,
             "picture_url": picture_url,
             "category": category,
+            "hashtags": hashtags or [],
             "content_batch_id": content_batch_id,
             "publish_batch_id": publish_batch_id,
             "status": "published",
@@ -65,6 +67,9 @@ class PublishingAgent:
         description = str(item.get("description", ""))
         picture_url = str(item.get("picture_url", "")).strip()
         category = item.get("category")
+        hashtags = item.get("hashtags") or []
+        if not isinstance(hashtags, list):
+            hashtags = [hashtags] if hashtags else []
 
         if not picture_url:
             logger.warning("PublishingAgent skipped missing picture_url title=%r", title[:80])
@@ -83,6 +88,7 @@ class PublishingAgent:
                 title=title,
                 description=description,
                 picture_url=picture_url,
+                hashtags=hashtags,
             )
             facebook_post_id = fb_response.get("id")
             result = {
@@ -90,6 +96,7 @@ class PublishingAgent:
                 "title": title,
                 "picture_url": picture_url,
                 "category": category,
+                "hashtags": hashtags,
                 "id": facebook_post_id,
                 "facebook_response": fb_response,
             }
@@ -100,6 +107,7 @@ class PublishingAgent:
                     description=description,
                     picture_url=picture_url,
                     category=category,
+                    hashtags=hashtags,
                     content_batch_id=content_batch_id,
                     publish_batch_id=publish_batch_id,
                 )
