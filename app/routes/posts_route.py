@@ -25,7 +25,10 @@ def list_published_posts(
         raise HTTPException(status_code=503, detail="Supabase is not configured")
 
     logger.info("/posts/published limit=%d status=%s", limit, status)
-    posts = repo.list_posts(limit=limit, status=status)
+    try:
+        posts = repo.list_posts(limit=limit, status=status)
+    except SupabaseConnectorError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"count": len(posts), "items": posts}
 
 
@@ -36,7 +39,10 @@ def get_published_post(facebook_post_id: str):
     if not get_supabase_connector() or not repo:
         raise HTTPException(status_code=503, detail="Supabase is not configured")
 
-    post = repo.get_by_facebook_post_id(facebook_post_id)
+    try:
+        post = repo.get_by_facebook_post_id(facebook_post_id)
+    except SupabaseConnectorError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     if not post:
         raise HTTPException(status_code=404, detail=f"Post not found: {facebook_post_id}")
     return post

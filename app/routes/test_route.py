@@ -34,7 +34,7 @@ def test_trend_agent():
     trend_agent = TrendAgent()
     response = trend_agent.run_agent(DEFAULT_TREND_PROMPT)
     logger.info("/test/trend-agent done count=%d", len(response))
-    return {"agent": "trend", "count": len(response), "items": response}
+    return {"agent": "trend", "count": len(response), "items": response, "token_usage": trend_agent.last_token_usage.to_dict()}
 
 
 @router.post("/reseach-agent")
@@ -44,7 +44,7 @@ def test_reseach_agent(trends: list[dict[str, Any]] = Body(...)):
     reseach_agent = ReseachAgent()
     response = reseach_agent.reseach_trends(trends)
     logger.info("/test/reseach-agent done count=%d", len(response))
-    return {"agent": "reseach", "count": len(response), "items": response}
+    return {"agent": "reseach", "count": len(response), "items": response, "token_usage": reseach_agent.last_token_usage.to_dict()}
 
 
 @router.post("/content-writer-agent")
@@ -89,6 +89,7 @@ def test_pipeline(body: PipelineRequest | None = None):
             trend_prompt=request.trend_prompt,
             publish=request.publish,
             publish_dry_run=request.publish,
+            run_source="test_pipeline",
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -3,6 +3,7 @@ import logging
 from typing import Any
 
 from app.core.llm import main_llm
+from app.core.token_usage import TokenUsage, extract_usage_from_message, log_token_usage
 from app.prompts.PromptManager import PromptManager
 
 logger = logging.getLogger(__name__)
@@ -12,6 +13,7 @@ class ReseachAgent:
     def __init__(self):
         self.llm = main_llm
         self.system_prompt = PromptManager.get("agent_prompts", "reseach_agent_system_prompt")
+        self.last_token_usage = TokenUsage()
 
     def _extract_json_payload(self, text: str) -> Any:
         try:
@@ -74,6 +76,8 @@ class ReseachAgent:
                 ("user", user_payload),
             ]
         )
+        self.last_token_usage = extract_usage_from_message(response) or TokenUsage()
+        log_token_usage("ReseachAgent", self.last_token_usage)
 
         content = getattr(response, "content", "")
         if isinstance(content, list):

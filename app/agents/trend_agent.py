@@ -5,6 +5,7 @@ from typing import Any
 from langchain.agents import create_agent
 
 from app.core.llm import main_llm
+from app.core.token_usage import TokenUsage, extract_usage_from_agent_response, extract_usage_from_message, log_token_usage
 from app.prompts.PromptManager import PromptManager
 from app.tools.trend_agent.animal_news_scraper_tool import animal_news_scraper_tool
 from app.tools.trend_agent.gnews_tool import gnews_tool
@@ -37,6 +38,7 @@ class TrendAgent:
         logger.info("Initializing TrendAgent")
         self.llm = main_llm
         self.agent = self.create_agent()
+        self.last_token_usage = TokenUsage()
         logger.info("TrendAgent ready")
 
     def create_agent(self):
@@ -115,6 +117,8 @@ class TrendAgent:
         response = self.agent.invoke({
             "messages": [("user", input)],
         })
+        self.last_token_usage = extract_usage_from_agent_response(response)
+        log_token_usage("TrendAgent", self.last_token_usage)
         logger.info("Agent invoke done %s", _summarize_invoke_result(response))
         topic_scores = self._extract_topic_scores(response)
         logger.info("Extracted topic_scores count=%d", len(topic_scores))

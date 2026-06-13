@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import Any
 
 import requests
@@ -9,7 +10,12 @@ logger = logging.getLogger(__name__)
 
 GRAPH_API_VERSION = "v21.0"
 GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
-MOCK_FB_POST_RESPONSE = {"id": "926705803858447_122128144917179318"}
+MOCK_FB_PAGE_ID = "926705803858447"
+
+
+def _mock_facebook_post_id() -> str:
+    """Unique id per dry-run post (real FB ids are also unique per post)."""
+    return f"{MOCK_FB_PAGE_ID}_{uuid.uuid4().hex[:18]}"
 
 
 class FacebookConnectorError(Exception):
@@ -37,8 +43,9 @@ class FacebookConnector:
 
     def _post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         if self.dry_run:
-            logger.info("Facebook dry_run post endpoint=%s", endpoint)
-            return dict(MOCK_FB_POST_RESPONSE)
+            post_id = _mock_facebook_post_id()
+            logger.info("Facebook dry_run post endpoint=%s id=%s", endpoint, post_id)
+            return {"id": post_id}
 
         url = f"{GRAPH_API_BASE}/{self.page_id}/{endpoint}"
         data = {**payload, "access_token": self.access_token}
@@ -55,6 +62,12 @@ class FacebookConnector:
             error = body.get("error", {}) if isinstance(body, dict) else {}
             message = error.get("message", response.text)
             logger.warning("Facebook post rejected: %s", message)
+            if "publish_actions" in message.lower():
+                raise FacebookConnectorError(
+                    "Facebook rejected the token: use a Page Access Token with pages_manage_posts, "
+                    "not a User token. In Graph API Explorer: GET /me/accounts and copy the page "
+                    "access_token for your page into facebook_access_token in .env"
+                )
             raise FacebookConnectorError(f"Facebook API error: {message}")
 
         logger.info("Facebook post complete post_id=%s", body.get("id"))

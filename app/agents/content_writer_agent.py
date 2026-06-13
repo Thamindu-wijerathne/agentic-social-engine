@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.llm import main_llm
+from app.core.token_usage import TokenUsage, extract_usage_from_message, log_token_usage
 from app.prompts.PromptManager import PromptManager
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ class ContentWriterAgent:
     def __init__(self):
         self.llm = main_llm
         self.system_prompt = PromptManager.get("agent_prompts", "content_writer_agent_system_prompt")
+        self.last_token_usage = TokenUsage()
 
     def _extract_json_payload(self, text: str) -> Any:
         try:
@@ -142,6 +144,8 @@ class ContentWriterAgent:
                 ("user", user_payload),
             ]
         )
+        self.last_token_usage = extract_usage_from_message(response) or TokenUsage()
+        log_token_usage("ContentWriterAgent", self.last_token_usage)
 
         content = getattr(response, "content", "")
         if isinstance(content, list):
@@ -167,8 +171,10 @@ class ContentWriterAgent:
                 "files": [],
                 "items": [],
                 "skipped_no_image": skipped_no_image,
+                "token_usage": self.last_token_usage.to_dict(),
             }
 
         result = self._save_to_temp(items, skipped_no_image=skipped_no_image)
+        result["token_usage"] = self.last_token_usage.to_dict()
         logger.info("ContentWriterAgent complete items=%d", len(items))
         return result

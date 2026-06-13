@@ -1,6 +1,8 @@
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
+import httpx
 from supabase import Client, create_client
 
 from config.settings import settings
@@ -20,17 +22,39 @@ class SupabaseConnector:
         url: str | None = None,
         secret_key: str | None = None,
     ):
-        self.url = url or settings.SUPABASE_URL
-        self.secret_key = secret_key or settings.SUPABASE_SECRET_KEY
+        raw_url = (url or settings.SUPABASE_URL or "").strip().rstrip("/")
+        # Dashboard sometimes shows .../rest/v1 — the Python client wants the project root only.
+        if raw_url.endswith("/rest/v1"):
+            raw_url = raw_url[: -len("/rest/v1")].rstrip("/")
+        self.url = raw_url
+        self.secret_key = (secret_key or settings.SUPABASE_SECRET_KEY or "").strip()
 
         if not self.url or not self.secret_key:
             raise SupabaseConnectorError("SUPABASE_URL and SUPABASE_SECRET_KEY must be configured")
 
+        parsed = urlparse(self.url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise SupabaseConnectorError(
+                "SUPABASE_URL must be like https://YOUR_PROJECT_REF.supabase.co"
+            )
+
         self.client: Client = create_client(self.url, self.secret_key)
-        logger.debug("SupabaseConnector initialized url=%s", self.url)
+        logger.debug("SupabaseConnector initialized host=%s", parsed.hostname)
+
+    def _wrap_request_error(self, exc: Exception) -> SupabaseConnectorError:
+        if isinstance(exc, httpx.ConnectError):
+            host = urlparse(self.url).hostname or self.url
+            return SupabaseConnectorError(
+                f"Cannot reach Supabase at {host}. "
+                "Check SUPABASE_URL in .env (Project Settings → API → Project URL)."
+            )
+        return SupabaseConnectorError(str(exc))
 
     def insert(self, table: str, record: dict[str, Any]) -> dict[str, Any]:
-        response = self.client.table(table).insert(record).execute()
+        try:
+            response = self.client.table(table).insert(record).execute()
+        except httpx.ConnectError as exc:
+            raise self._wrap_request_error(exc) from exc
         rows = response.data or []
         if not rows:
             raise SupabaseConnectorError(f"Insert into {table} returned no rows")
@@ -53,7 +77,10 @@ class SupabaseConnector:
             query = query.order(order_by, desc=descending)
         if limit is not None:
             query = query.limit(limit)
-        response = query.execute()
+        try:
+            response = query.execute()
+        except httpx.ConnectError as exc:
+            raise self._wrap_request_error(exc) from exc
         return response.data or []
 
     def select_one(self, table: str, filters: dict[str, Any], columns: str = "*") -> dict[str, Any] | None:
@@ -69,7 +96,10 @@ class SupabaseConnector:
         query = self.client.table(table).update(values)
         for key, value in filters.items():
             query = query.eq(key, value)
-        response = query.execute()
+        try:
+            response = query.execute()
+        except httpx.ConnectError as exc:
+            raise self._wrap_request_error(exc) from exc
         rows = response.data or []
         if not rows:
             raise SupabaseConnectorError(f"Update on {table} returned no rows")
@@ -79,7 +109,10 @@ class SupabaseConnector:
         query = self.client.table(table).delete()
         for key, value in filters.items():
             query = query.eq(key, value)
-        response = query.execute()
+        try:
+            response = query.execute()
+        except httpx.ConnectError as exc:
+            raise self._wrap_request_error(exc) from exc
         return response.data or []
 
 
