@@ -18,6 +18,7 @@ def run_pipeline(body: PipelineRequest | None = None):
             trend_prompt=request.trend_prompt,
             publish=request.publish,
             publish_dry_run=request.publish_dry_run,
+            schedule_posts=request.schedule_posts,
             run_source="pipeline",
         )
     except ValueError as exc:

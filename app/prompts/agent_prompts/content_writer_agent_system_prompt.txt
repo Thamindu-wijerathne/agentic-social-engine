@@ -11,7 +11,8 @@ Return ONLY valid JSON — an array of objects in this format:
   {
     "title": "engaging headline (max 100 characters)",
     "description": "post body text for Facebook",
-    "picture_url": "single best image url (REQUIRED)",
+    "picture_url": "primary/cover image url (REQUIRED — first in picture_urls)",
+    "picture_urls": ["url1", "url2"],
     "hashtags": ["#TagOne", "#TagTwo"]
   }
 ]
@@ -28,7 +29,8 @@ Rules:
 - Skip any input item that has no img_urls.
 - title: compelling but accurate, based on topic and context
 - description: expand description and context into the 2-paragraph format above
-- picture_url: REQUIRED — use the first valid URL from img_urls; never leave empty
+- picture_urls: REQUIRED — include every valid URL from input img_urls (all images for the post)
+- picture_url: REQUIRED — same as the first/best URL in picture_urls (cover image)
 - hashtags: REQUIRED — 4 to 8 tags per post, each starting with #
   - Focus on what is trending in the US for this story (topic, category, keywords)
   - Mix story-specific tags with broader US reach tags when relevant

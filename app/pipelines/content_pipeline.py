@@ -28,6 +28,13 @@ class PipelineRequest(BaseModel):
         default=False,
         description="If true, mock Facebook publish (no real API call). Useful for testing.",
     )
+    schedule_posts: bool = Field(
+        default=True,
+        description=(
+            "If true with publish, schedule posts at US slot times "
+            "(8am, 11am, 2pm, 5pm, 8pm) instead of publishing immediately"
+        ),
+    )
 
 
 DEFAULT_TREND_PROMPT = (
@@ -84,6 +91,7 @@ class ContentPipeline:
         trend_prompt: str | None = None,
         publish: bool = False,
         publish_dry_run: bool = False,
+        schedule_posts: bool = True,
         run_source: str = "pipeline",
     ) -> PipelineResult:
         prompt = trend_prompt or DEFAULT_TREND_PROMPT
@@ -119,9 +127,14 @@ class ContentPipeline:
                 publishing = publisher.publish_items(
                     content.get("items", []),
                     source_batch_id=content.get("batch_id"),
+                    schedule=schedule_posts,
                 )
                 steps.append("publishing")
-                logger.info("ContentPipeline publish done published=%d", publishing.get("published", 0))
+                logger.info(
+                    "ContentPipeline publish done published=%d scheduled=%d",
+                    publishing.get("published", 0),
+                    publishing.get("scheduled", 0),
+                )
             except FacebookConnectorError as exc:
                 publishing_error = str(exc)
                 logger.warning("ContentPipeline publish failed: %s", publishing_error)
@@ -156,11 +169,13 @@ def run_content_pipeline(
     trend_prompt: str | None = None,
     publish: bool = False,
     publish_dry_run: bool = False,
+    schedule_posts: bool = True,
     run_source: str = "pipeline",
 ) -> dict[str, Any]:
     return ContentPipeline().run(
         trend_prompt=trend_prompt,
         publish=publish,
         publish_dry_run=publish_dry_run,
+        schedule_posts=schedule_posts,
         run_source=run_source,
     ).to_dict()

@@ -14,7 +14,11 @@ router = APIRouter(prefix="/publish", tags=["publish"])
 class PublishItemsRequest(BaseModel):
     items: list[dict[str, Any]] = Field(
         ...,
-        description="Content writer items with title, description, picture_url",
+        description="Content writer items with title, description, picture_url(s)",
+    )
+    schedule: bool = Field(
+        default=True,
+        description="Schedule at US slot times (8am, 11am, 2pm, 5pm, 8pm) instead of posting now",
     )
 
 
@@ -24,6 +28,10 @@ class PublishBatchRequest(BaseModel):
         description="Content batch id from temp/content/{batch_id}",
         examples=["20260611_104934"],
     )
+    schedule: bool = Field(
+        default=True,
+        description="Schedule at US slot times (8am, 11am, 2pm, 5pm, 8pm) instead of posting now",
+    )
 
 
 @router.post("/items")
@@ -32,7 +40,7 @@ def publish_items(body: PublishItemsRequest):
     logger.info("/publish/items start count=%d", len(body.items))
     try:
         publisher = PublishingAgent()
-        result = publisher.publish_items(body.items)
+        result = publisher.publish_items(body.items, schedule=body.schedule)
     except (FacebookConnectorError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -46,7 +54,7 @@ def publish_batch(body: PublishBatchRequest):
     logger.info("/publish/batch start batch_id=%s", body.batch_id)
     try:
         publisher = PublishingAgent()
-        result = publisher.publish_batch(body.batch_id)
+        result = publisher.publish_batch(body.batch_id, schedule=body.schedule)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (FacebookConnectorError, ValueError) as exc:

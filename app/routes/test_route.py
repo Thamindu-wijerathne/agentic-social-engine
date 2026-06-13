@@ -25,6 +25,10 @@ class PublishTestRequest(BaseModel):
         description="Or publish from a saved content batch id",
         examples=["20260611_104934"],
     )
+    schedule: bool = Field(
+        default=True,
+        description="Assign US schedule slots (dry-run still returns slot times)",
+    )
 
 
 @router.get("/trend-agent")
@@ -67,9 +71,9 @@ def test_publishing_agent(body: PublishTestRequest):
     try:
         publisher = PublishingAgent(dry_run=True)
         if body.batch_id:
-            result = publisher.publish_batch(body.batch_id)
+            result = publisher.publish_batch(body.batch_id, schedule=body.schedule)
         else:
-            result = publisher.publish_items(body.items or [])
+            result = publisher.publish_items(body.items or [], schedule=body.schedule)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (FacebookConnectorError, ValueError) as exc:
@@ -89,6 +93,7 @@ def test_pipeline(body: PipelineRequest | None = None):
             trend_prompt=request.trend_prompt,
             publish=request.publish,
             publish_dry_run=request.publish,
+            schedule_posts=request.schedule_posts,
             run_source="test_pipeline",
         )
     except ValueError as exc:

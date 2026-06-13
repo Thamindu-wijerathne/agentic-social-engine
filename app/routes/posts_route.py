@@ -17,7 +17,7 @@ router = APIRouter(prefix="/posts", tags=["posts"])
 @router.get("/published")
 def list_published_posts(
     limit: int = Query(default=50, ge=1, le=200),
-    status: str | None = Query(default=None, description="published | failed | deleted"),
+    status: str | None = Query(default=None, description="published | scheduled | failed | deleted"),
 ):
     """List traced Facebook posts from Supabase."""
     repo = get_published_posts_repository()

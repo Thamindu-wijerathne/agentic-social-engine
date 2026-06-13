@@ -28,16 +28,34 @@ class ContentWriterAgent:
         self.last_token_usage = TokenUsage()
 
     @staticmethod
-    def _resolve_picture_url(item: dict[str, Any], research_item: dict[str, Any] | None) -> str:
-        picture_url = str(item.get("picture_url", item.get("image_url", ""))).strip()
-        if picture_url:
-            return picture_url
+    def _resolve_picture_urls(item: dict[str, Any], research_item: dict[str, Any] | None) -> list[str]:
+        urls: list[str] = []
+        seen: set[str] = set()
+
+        def add(url: Any) -> None:
+            cleaned = str(url).strip()
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                urls.append(cleaned)
+
+        raw_urls = item.get("picture_urls")
+        if isinstance(raw_urls, list):
+            for url in raw_urls:
+                add(url)
+
+        add(item.get("picture_url"))
+        add(item.get("image_url"))
+
+        raw_image_urls = item.get("image_urls")
+        if isinstance(raw_image_urls, list):
+            for url in raw_image_urls:
+                add(url)
 
         if research_item:
-            img_urls = research_item.get("img_urls") or []
-            if img_urls:
-                return str(img_urls[0]).strip()
-        return ""
+            for url in research_item.get("img_urls") or []:
+                add(url)
+
+        return urls
 
     @staticmethod
     def _ensure_hashtag(tag: str) -> str:
@@ -98,16 +116,17 @@ class ContentWriterAgent:
                 continue
 
             research_item = research_items[index] if index < len(research_items) else None
-            picture_url = self._resolve_picture_url(item, research_item)
-            if not picture_url:
+            picture_urls = self._resolve_picture_urls(item, research_item)
+            if not picture_urls:
                 skipped_no_image.append(title)
-                logger.warning("ContentWriterAgent skipped item without picture_url title=%r", title[:80])
+                logger.warning("ContentWriterAgent skipped item without picture_urls title=%r", title[:80])
                 continue
 
             entry: dict[str, Any] = {
                 "title": title,
                 "description": str(item.get("description", "")).strip(),
-                "picture_url": picture_url,
+                "picture_url": picture_urls[0],
+                "picture_urls": picture_urls,
                 "hashtags": self._normalize_hashtags(item.get("hashtags"), research_item),
             }
             if research_item:
