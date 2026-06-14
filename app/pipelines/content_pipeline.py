@@ -13,6 +13,7 @@ from app.connectors.fb_connector import FacebookConnectorError
 logger = logging.getLogger(__name__)
 
 class PipelineRequest(BaseModel):
+    """Dev/test pipeline request — publishing off by default."""
     trend_prompt: str | None = Field(
         default=None,
         description="Optional override for the trend agent input prompt",
@@ -20,6 +21,34 @@ class PipelineRequest(BaseModel):
     publish: bool = Field(
         default=False,
         description="If true, publish content to Facebook after content writer step",
+    )
+    publish_dry_run: bool = Field(
+        default=False,
+        description="If true with publish, mock Facebook publish (no real API call)",
+    )
+    schedule_posts: bool = Field(
+        default=True,
+        description="If true with publish, schedule posts at US slot times instead of posting immediately",
+    )
+
+
+class PipelineProductionRequest(BaseModel):
+    """Production pipeline request — real Facebook publish + schedule by default."""
+    trend_prompt: str | None = Field(
+        default=None,
+        description="Optional override for the trend agent input prompt",
+    )
+    publish: bool = Field(
+        default=True,
+        description="Publish content to Facebook after content writer step",
+    )
+    publish_dry_run: bool = Field(
+        default=False,
+        description="Mock Facebook publish (no real API call)",
+    )
+    schedule_posts: bool = Field(
+        default=True,
+        description="Schedule posts at US slot times (8am, 11am, 2pm, 5pm, 8pm)",
     )
 
 
@@ -67,11 +96,18 @@ class ContentPipeline:
         self,
         trend_prompt: str | None = None,
         publish: bool = False,
+        publish_dry_run: bool = False,
+        schedule_posts: bool = True,
     ) -> PipelineResult:
         prompt = trend_prompt or DEFAULT_TREND_PROMPT
         steps = ["trend", "research", "content_writer"]
 
-        logger.info("ContentPipeline start publish=%s", publish)
+        logger.info(
+            "ContentPipeline start publish=%s dry_run=%s schedule=%s",
+            publish,
+            publish_dry_run,
+            schedule_posts,
+        )
 
         trends = self.trend_agent.run_agent(prompt)
         logger.info("ContentPipeline trend done count=%d", len(trends))
@@ -84,13 +120,18 @@ class ContentPipeline:
 
         publishing: dict[str, Any] | None = None
         if publish:
-            publisher = self._publishing_agent or PublishingAgent()
+            publisher = self._publishing_agent or PublishingAgent(dry_run=publish_dry_run)
             publishing = publisher.publish_items(
                 content.get("items", []),
                 source_batch_id=content.get("batch_id"),
+                schedule=schedule_posts,
             )
             steps.append("publishing")
-            logger.info("ContentPipeline publish done published=%d", publishing.get("published", 0))
+            logger.info(
+                "ContentPipeline publish done published=%d scheduled=%d",
+                publishing.get("published", 0),
+                publishing.get("scheduled", 0),
+            )
 
         return PipelineResult(
             pipeline=steps,
@@ -104,9 +145,16 @@ class ContentPipeline:
 def run_content_pipeline(
     trend_prompt: str | None = None,
     publish: bool = False,
+    publish_dry_run: bool = False,
+    schedule_posts: bool = True,
 ) -> dict[str, Any]:
     try:
-        result = ContentPipeline().run(trend_prompt=trend_prompt, publish=publish)
+        result = ContentPipeline().run(
+            trend_prompt=trend_prompt,
+            publish=publish,
+            publish_dry_run=publish_dry_run,
+            schedule_posts=schedule_posts,
+        )
     except FacebookConnectorError as exc:
         raise ValueError(f"Publishing failed: {exc}") from exc
     return result.to_dict()

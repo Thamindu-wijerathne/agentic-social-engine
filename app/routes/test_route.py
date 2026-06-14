@@ -25,6 +25,10 @@ class PublishTestRequest(BaseModel):
         description="Or publish from a saved content batch id",
         examples=["20260611_104934"],
     )
+    dry_run: bool = Field(
+        default=True,
+        description="If true, mock Facebook publish (no real API call)",
+    )
 
 
 @router.get("/trend-agent")
@@ -70,7 +74,7 @@ def test_publishing_agent(body: PublishTestRequest):
         raise HTTPException(status_code=400, detail="Provide either items or batch_id")
 
     try:
-        publisher = PublishingAgent(dry_run=True)
+        publisher = PublishingAgent(dry_run=body.dry_run)
         if body.batch_id:
             result = publisher.publish_batch(body.batch_id)
         else:
@@ -88,11 +92,13 @@ def test_publishing_agent(body: PublishTestRequest):
 def test_pipeline(body: PipelineRequest | None = None):
     """Test full pipeline via ContentPipeline service."""
     request = body or PipelineRequest()
-    logger.info("/test/pipeline start publish=%s", request.publish)
+    logger.info("/test/pipeline start publish=%s dry_run=%s", request.publish, request.publish_dry_run)
     try:
         result = run_content_pipeline(
             trend_prompt=request.trend_prompt,
             publish=request.publish,
+            publish_dry_run=request.publish_dry_run,
+            schedule_posts=request.schedule_posts,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
