@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.content_writer_agent import ContentWriterAgent
 from app.agents.publishing_agent import PublishingAgent
-from app.agents.reseach_agent import ReseachAgent
+from app.agents.research_agent import ResearchAgent
 from app.agents.trend_agent import TrendAgent
 from app.connectors.fb_connector import FacebookConnectorError
 
@@ -54,12 +54,12 @@ class ContentPipeline:
     def __init__(
         self,
         trend_agent: TrendAgent | None = None,
-        reseach_agent: ReseachAgent | None = None,
+        research_agent: ResearchAgent | None = None,
         content_writer: ContentWriterAgent | None = None,
         publishing_agent: PublishingAgent | None = None,
     ):
         self.trend_agent = trend_agent or TrendAgent()
-        self.reseach_agent = reseach_agent or ReseachAgent()
+        self.research_agent = research_agent or ResearchAgent()
         self.content_writer = content_writer or ContentWriterAgent()
         self._publishing_agent = publishing_agent
 
@@ -69,15 +69,15 @@ class ContentPipeline:
         publish: bool = False,
     ) -> PipelineResult:
         prompt = trend_prompt or DEFAULT_TREND_PROMPT
-        steps = ["trend", "reseach", "content_writer"]
+        steps = ["trend", "research", "content_writer"]
 
         logger.info("ContentPipeline start publish=%s", publish)
 
         trends = self.trend_agent.run_agent(prompt)
         logger.info("ContentPipeline trend done count=%d", len(trends))
 
-        research = self.reseach_agent.reseach_trends(trends)
-        logger.info("ContentPipeline reseach done count=%d", len(research))
+        research = self.research_agent.research_trends(trends)
+        logger.info("ContentPipeline research done count=%d", len(research))
 
         content = self.content_writer.write_content(research)
         logger.info("ContentPipeline content_writer done batch_id=%s", content.get("batch_id"))

@@ -5,6 +5,8 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+from app.core.image_urls import normalize_image_url
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_HEADERS = {
@@ -31,14 +33,14 @@ def collect_image_urls(soup: BeautifulSoup, page_url: str, limit: int = 10) -> l
     for attr in ("og:image", "twitter:image"):
         value = _meta_content(soup, attr)
         if value:
-            absolute = urljoin(page_url, value)
-            if absolute not in seen:
+            absolute = normalize_image_url(value, page_url)
+            if absolute and absolute not in seen:
                 seen.add(absolute)
                 urls.append(absolute)
 
     for img in soup.find_all("img", src=True):
-        absolute = urljoin(page_url, str(img["src"]))
-        if absolute.startswith("http") and absolute not in seen:
+        absolute = normalize_image_url(str(img["src"]), page_url)
+        if absolute and absolute not in seen:
             seen.add(absolute)
             urls.append(absolute)
 
