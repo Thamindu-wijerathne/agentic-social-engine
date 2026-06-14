@@ -88,5 +88,9 @@ def save_token_usage_log(
     try:
         return repo.insert_log(record)
     except TokenUsageRepositoryError as exc:
-        logger.warning("Failed to save token usage log: %s", exc)
+        logger.error(
+            "Failed to save token usage log run_source=%s: %s",
+            run_source,
+            exc,
+        )
         return None

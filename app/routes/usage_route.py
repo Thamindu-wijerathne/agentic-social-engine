@@ -9,12 +9,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/usage", tags=["usage"])
 
 
-@router.get("/logs")
+@router.get(
+    "/logs",
+    summary="List token usage logs",
+    description=(
+        "List LLM token usage and estimated cost records saved after pipeline runs.\n\n"
+        "Requires Supabase. Filter by `run_source` (e.g. `pipeline` or `test_pipeline`)."
+    ),
+)
 def list_token_usage_logs(
-    limit: int = Query(default=50, ge=1, le=200),
-    run_source: str | None = Query(default=None, description="pipeline | test_pipeline"),
+    limit: int = Query(default=50, ge=1, le=200, description="Max rows to return"),
+    run_source: str | None = Query(
+        default=None,
+        description="Filter by run source: pipeline, test_pipeline, etc.",
+    ),
 ):
-    """List saved token/cost logs from Supabase."""
     if not get_supabase_connector():
         raise HTTPException(status_code=503, detail="Supabase is not configured")
 
@@ -36,9 +45,12 @@ def list_token_usage_logs(
     }
 
 
-@router.get("/logs/{log_id}")
+@router.get(
+    "/logs/{log_id}",
+    summary="Get token usage log",
+    description="Fetch one token usage log by Supabase row id, including per-agent token breakdown.",
+)
 def get_token_usage_log(log_id: str):
-    """Get one token usage log by id."""
     repo = get_token_usage_repository()
     if not repo:
         raise HTTPException(status_code=503, detail="Supabase is not configured")

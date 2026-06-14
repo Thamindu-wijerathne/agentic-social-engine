@@ -12,11 +12,11 @@ router = APIRouter(prefix="/scraper", tags=["scraper"])
 
 
 class ScrapeRequest(BaseModel):
-    url: HttpUrl
+    url: HttpUrl = Field(..., description="Single page URL to scrape for article content.")
 
 
 class CrawlRequest(BaseModel):
-    start_url: HttpUrl
+    start_url: HttpUrl = Field(..., description="Listing page URL to start crawling from.")
     list_item_selector: str = Field(
         default='a[href^="/articles/"]',
         description=(
@@ -27,7 +27,7 @@ class CrawlRequest(BaseModel):
     )
     next_page_selector: str | None = Field(
         default="a.w-pagination-next, button:has-text('Next'), a:has-text('Next'), [aria-label='Next page']",
-        description="CSS selector for the bottom next-page control",
+        description="CSS selector for the bottom next-page control.",
     )
     link_selector: str | None = Field(
         default=None,
@@ -38,15 +38,19 @@ class CrawlRequest(BaseModel):
     )
     content_selector: str | None = Field(
         default=None,
-        description="Optional CSS selector for article body/title on detail pages",
+        description="Optional CSS selector for article body/title on detail pages.",
     )
-    max_pages: int = Field(default=3, ge=1, le=20)
-    max_items_per_page: int | None = Field(default=None, ge=1, le=50)
-    headless: bool = True
-    wait_ms: int = Field(default=1500, ge=0, le=10_000)
+    max_pages: int = Field(default=3, ge=1, le=20, description="Maximum listing pages to crawl.")
+    max_items_per_page: int | None = Field(default=None, ge=1, le=50, description="Cap items scraped per page.")
+    headless: bool = Field(default=True, description="Run browser in headless mode.")
+    wait_ms: int = Field(default=1500, ge=0, le=10_000, description="Milliseconds to wait after page load.")
 
 
-@router.post("/scrape")
+@router.post(
+    "/scrape",
+    summary="Scrape single URL",
+    description="Fetch and extract article content (title, text, images) from one public URL.",
+)
 def scrape_page(body: ScrapeRequest):
     url = str(body.url)
     logger.info("/scraper/scrape handler start url=%s", url)
@@ -60,7 +64,14 @@ def scrape_page(body: ScrapeRequest):
     return to_article_payload(result)
 
 
-@router.post("/crawl")
+@router.post(
+    "/crawl",
+    summary="Crawl listing pages",
+    description=(
+        "Crawl a React-style listing with pagination using Playwright. "
+        "Follows next-page links and scrapes each article detail page."
+    ),
+)
 def crawl_pages(body: CrawlRequest):
     logger.info(
         "/scraper/crawl handler start url=%s list_item=%s max_pages=%d",

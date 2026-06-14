@@ -8,9 +8,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
-@router.post("/run")
+@router.post(
+    "/run",
+    summary="Run production pipeline",
+    description=(
+        "Runs the full production workflow: TrendAgent → ResearchAgent → ContentWriterAgent → "
+        "optional Facebook publish.\n\n"
+        "**Defaults (production):** `publish=true`, `publish_dry_run=false`, `schedule_posts=true`.\n\n"
+        "Returns trends, research, saved content batch, publishing results, token usage, and any publish error."
+    ),
+)
 def run_pipeline(body: PipelineProductionRequest | None = None):
-    """Run production pipeline: trend → research → content → Facebook publish (scheduled)."""
     request = body or PipelineProductionRequest()
     logger.info(
         "/pipeline/run start publish=%s dry_run=%s schedule=%s",

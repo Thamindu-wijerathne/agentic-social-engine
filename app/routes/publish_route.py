@@ -14,24 +14,31 @@ router = APIRouter(prefix="/publish", tags=["publish"])
 class PublishItemsRequest(BaseModel):
     items: list[dict[str, Any]] = Field(
         ...,
-        description="Content writer items with title, description, picture_url",
+        description="Content writer items. Each needs at least title, description, and picture_url (or picture_urls).",
     )
 
 
 class PublishBatchRequest(BaseModel):
     batch_id: str = Field(
         ...,
-        description="Content batch id from temp/content/{batch_id}",
+        description="Content batch id from `temp/content/{batch_id}/manifest.json`.",
         examples=["20260611_104934"],
     )
 
 
-@router.post("/items")
+@router.post(
+    "/items",
+    summary="Publish content items",
+    description=(
+        "Publish a list of content-writer items to Facebook immediately (not scheduled unless items "
+        "were pre-built for scheduling elsewhere).\n\n"
+        "Set `dry_run=true` to return mock Facebook IDs without calling the Graph API."
+    ),
+)
 def publish_items(
     body: PublishItemsRequest,
     dry_run: bool = Query(default=False, description="Mock publish without calling Facebook API"),
 ):
-    """Publish a list of content items to Facebook."""
     logger.info("/publish/items start count=%d dry_run=%s", len(body.items), dry_run)
     try:
         publisher = PublishingAgent(dry_run=dry_run)
@@ -43,12 +50,18 @@ def publish_items(
     return result
 
 
-@router.post("/batch")
+@router.post(
+    "/batch",
+    summary="Publish saved content batch",
+    description=(
+        "Load all items from a saved content batch folder and publish them to Facebook.\n\n"
+        "Set `dry_run=true` to simulate publish without real API calls."
+    ),
+)
 def publish_batch(
     body: PublishBatchRequest,
     dry_run: bool = Query(default=False, description="Mock publish without calling Facebook API"),
 ):
-    """Publish all items from a saved content batch folder."""
     logger.info("/publish/batch start batch_id=%s dry_run=%s", body.batch_id, dry_run)
     try:
         publisher = PublishingAgent(dry_run=dry_run)
@@ -62,12 +75,18 @@ def publish_batch(
     return result
 
 
-@router.delete("/{facebook_post_id}")
+@router.delete(
+    "/{facebook_post_id}",
+    summary="Delete Facebook post",
+    description=(
+        "Delete a post on Facebook by Graph API post id and mark it `deleted` in Supabase when tracing is enabled.\n\n"
+        "This is the only delete endpoint — `/posts` is read-only history."
+    ),
+)
 def delete_post(
     facebook_post_id: str,
     dry_run: bool = Query(default=False, description="Mock delete without calling Facebook API"),
 ):
-    """Delete a Facebook post by Graph API post id."""
     post_id = facebook_post_id.strip()
     if not post_id:
         raise HTTPException(status_code=400, detail="facebook_post_id is required")

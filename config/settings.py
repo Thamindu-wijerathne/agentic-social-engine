@@ -32,11 +32,6 @@ class Settings(BaseSettings):
     SUPABASE_API_KEY: str | None = None
     SUPABASE_SECRET_KEY: str | None = None
 
-    # --- Supabase ---
-    SUPABASE_URL: str | None = None
-    SUPABASE_API_KEY: str | None = None
-    SUPABASE_SECRET_KEY: str | None = None
-
     model_config = SettingsConfigDict(
         env_file=_ENV_FILE,
         env_file_encoding="utf-8",

@@ -73,6 +73,7 @@ class PipelineResult:
     publishing_error: str | None = None
     token_usage: dict[str, Any] | None = None
     token_usage_log_id: str | None = None
+    token_usage_log_error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -87,8 +88,9 @@ class PipelineResult:
             result["publishing_error"] = self.publishing_error
         if self.token_usage is not None:
             result["token_usage"] = self.token_usage
-        if self.token_usage_log_id:
             result["token_usage_log_id"] = self.token_usage_log_id
+            if self.token_usage_log_error:
+                result["token_usage_log_error"] = self.token_usage_log_error
         return result
 
 
@@ -123,56 +125,68 @@ class ContentPipeline:
             schedule_posts,
         )
         usage_tracker = PipelineTokenUsage()
-
-        trends = self.trend_agent.run_agent(prompt)
-        usage_tracker.add_agent("trend", self.trend_agent.last_token_usage)
-        logger.info("ContentPipeline trend done count=%d", len(trends))
-
-        research = self.research_agent.research_trends(trends)
-        usage_tracker.add_agent("research", self.research_agent.last_token_usage)
-        logger.info("ContentPipeline research done count=%d", len(research))
-
-        content = self.content_writer.write_content(research)
-        usage_tracker.add_agent("content_writer", self.content_writer.last_token_usage)
-        logger.info("ContentPipeline content_writer done batch_id=%s", content.get("batch_id"))
-
-        token_summary = usage_tracker.to_dict()
-        log_token_usage("ContentPipeline total", usage_tracker.total)
-        logger.info("ContentPipeline estimated_cost_usd=%s", token_summary["estimated_cost_usd"])
-
+        trends: list[dict[str, Any]] = []
+        research: list[dict[str, Any]] = []
+        content: dict[str, Any] = {}
         publishing: dict[str, Any] | None = None
         publishing_error: str | None = None
-        if publish:
-            try:
-                publisher = self._publishing_agent or PublishingAgent(dry_run=publish_dry_run)
-                publishing = publisher.publish_items(
-                    content.get("items", []),
-                    source_batch_id=content.get("batch_id"),
-                    schedule=schedule_posts,
-                )
-                steps.append("publishing")
-                logger.info(
-                    "ContentPipeline publish done published=%d scheduled=%d",
-                    publishing.get("published", 0),
-                    publishing.get("scheduled", 0),
-                )
-            except FacebookConnectorError as exc:
-                publishing_error = str(exc)
-                logger.warning("ContentPipeline publish failed: %s", publishing_error)
+        token_summary: dict[str, Any] | None = None
+        token_log: dict[str, Any] | None = None
+        token_usage_log_error: str | None = None
 
-        token_log = save_token_usage_log(
-            token_summary,
-            run_source=run_source,
-            content_batch_id=content.get("batch_id"),
-            publish_batch_id=(publishing or {}).get("publish_batch_id"),
-            pipeline_steps=steps,
-            trends_count=len(trends),
-            research_count=len(research),
-            content_count=len(content.get("items", [])),
-            published_count=(publishing or {}).get("published", 0),
-            model=settings.CLAUDE_MODEL,
-            publish_dry_run=publish_dry_run if publish else False,
-        )
+        try:
+            trends = self.trend_agent.run_agent(prompt)
+            usage_tracker.add_agent("trend", self.trend_agent.last_token_usage)
+            logger.info("ContentPipeline trend done count=%d", len(trends))
+
+            research = self.research_agent.research_trends(trends)
+            usage_tracker.add_agent("research", self.research_agent.last_token_usage)
+            logger.info("ContentPipeline research done count=%d", len(research))
+
+            content = self.content_writer.write_content(research)
+            usage_tracker.add_agent("content_writer", self.content_writer.last_token_usage)
+            logger.info("ContentPipeline content_writer done batch_id=%s", content.get("batch_id"))
+
+            if publish:
+                try:
+                    publisher = self._publishing_agent or PublishingAgent(dry_run=publish_dry_run)
+                    publishing = publisher.publish_items(
+                        content.get("items", []),
+                        source_batch_id=content.get("batch_id"),
+                        schedule=schedule_posts,
+                    )
+                    steps.append("publishing")
+                    logger.info(
+                        "ContentPipeline publish done published=%d scheduled=%d",
+                        publishing.get("published", 0),
+                        publishing.get("scheduled", 0),
+                    )
+                except FacebookConnectorError as exc:
+                    publishing_error = str(exc)
+                    logger.warning("ContentPipeline publish failed: %s", publishing_error)
+        finally:
+            token_summary = usage_tracker.to_dict()
+            log_token_usage("ContentPipeline total", usage_tracker.total)
+            logger.info("ContentPipeline estimated_cost_usd=%s", token_summary["estimated_cost_usd"])
+
+            token_log = save_token_usage_log(
+                token_summary,
+                run_source=run_source,
+                content_batch_id=content.get("batch_id"),
+                publish_batch_id=(publishing or {}).get("publish_batch_id"),
+                pipeline_steps=steps,
+                trends_count=len(trends),
+                research_count=len(research),
+                content_count=len(content.get("items", [])),
+                published_count=(publishing or {}).get("published", 0),
+                model=settings.CLAUDE_MODEL,
+                publish_dry_run=publish_dry_run if publish else False,
+            )
+            if token_log is None:
+                token_usage_log_error = "Token usage log was not saved (Supabase unavailable or insert failed)"
+                logger.error("ContentPipeline %s", token_usage_log_error)
+            else:
+                logger.info("ContentPipeline token_usage_log_id=%s", token_log.get("id"))
 
         return PipelineResult(
             pipeline=steps,
@@ -183,6 +197,7 @@ class ContentPipeline:
             publishing_error=publishing_error,
             token_usage=token_summary,
             token_usage_log_id=token_log.get("id") if token_log else None,
+            token_usage_log_error=token_usage_log_error,
         )
 
 

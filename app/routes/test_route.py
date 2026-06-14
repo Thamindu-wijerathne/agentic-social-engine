@@ -18,22 +18,25 @@ router = APIRouter(prefix="/test", tags=["test"])
 class PublishTestRequest(BaseModel):
     items: list[dict[str, Any]] | None = Field(
         default=None,
-        description="Content items to publish (title, description, picture_url)",
+        description="Content items to publish (title, description, picture_url).",
     )
     batch_id: str | None = Field(
         default=None,
-        description="Or publish from a saved content batch id",
+        description="Alternatively publish from a saved content batch id.",
         examples=["20260611_104934"],
     )
     dry_run: bool = Field(
         default=True,
-        description="If true, mock Facebook publish (no real API call)",
+        description="Mock Facebook publish by default for safe local testing.",
     )
 
 
-@router.get("/trend-agent")
+@router.get(
+    "/trend-agent",
+    summary="Test trend agent",
+    description="Run TrendAgent only with the default daily topic prompt. Returns scored topics and token usage.",
+)
 def test_trend_agent():
-    """Test TrendAgent only."""
     logger.info("/test/trend-agent start")
     trend_agent = TrendAgent()
     response = trend_agent.run_agent(DEFAULT_TREND_PROMPT)
@@ -46,9 +49,12 @@ def test_trend_agent():
     }
 
 
-@router.post("/research-agent")
+@router.post(
+    "/research-agent",
+    summary="Test research agent",
+    description="Run ResearchAgent on trend output JSON. Body: array of trend topic objects from TrendAgent.",
+)
 def test_research_agent(trends: list[dict[str, Any]] = Body(...)):
-    """Test ResearchAgent only. Body: trend agent output."""
     logger.info("/test/research-agent start trends=%d", len(trends))
     research_agent = ResearchAgent()
     response = research_agent.research_trends(trends)
@@ -61,9 +67,12 @@ def test_research_agent(trends: list[dict[str, Any]] = Body(...)):
     }
 
 
-@router.post("/content-writer-agent")
+@router.post(
+    "/content-writer-agent",
+    summary="Test content writer agent",
+    description="Run ContentWriterAgent on research output. Saves posts to `temp/content/{batch_id}` when successful.",
+)
 def test_content_writer_agent(research_items: list[dict[str, Any]] = Body(...)):
-    """Test ContentWriterAgent only. Body: research agent output."""
     logger.info("/test/content-writer-agent start items=%d", len(research_items))
     content_writer = ContentWriterAgent()
     response = content_writer.write_content(research_items)
@@ -71,9 +80,15 @@ def test_content_writer_agent(research_items: list[dict[str, Any]] = Body(...)):
     return {"agent": "content_writer", **response}
 
 
-@router.post("/publishing-agent")
+@router.post(
+    "/publishing-agent",
+    summary="Test publishing agent",
+    description=(
+        "Run PublishingAgent in isolation. Provide `items` or `batch_id`.\n\n"
+        "Defaults to `dry_run=true` so no real Facebook posts are created."
+    ),
+)
 def test_publishing_agent(body: PublishTestRequest):
-    """Test PublishingAgent only. Provide items or batch_id."""
     logger.info("/test/publishing-agent start")
     if not body.items and not body.batch_id:
         raise HTTPException(status_code=400, detail="Provide either items or batch_id")
@@ -93,9 +108,15 @@ def test_publishing_agent(body: PublishTestRequest):
     return {"agent": "publishing", **result}
 
 
-@router.post("/pipeline")
+@router.post(
+    "/pipeline",
+    summary="Test full pipeline",
+    description=(
+        "Run the full pipeline with dev-safe defaults: `publish=false`, `publish_dry_run=false`.\n\n"
+        "Set `publish=true` and `publish_dry_run=true` to test the publish step without real Facebook calls."
+    ),
+)
 def test_pipeline(body: PipelineRequest | None = None):
-    """Test full pipeline via ContentPipeline service."""
     request = body or PipelineRequest()
     logger.info(
         "/test/pipeline start publish=%s dry_run=%s",
