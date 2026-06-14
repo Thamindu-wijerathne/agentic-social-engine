@@ -142,3 +142,20 @@ def log_token_usage(label: str, usage: TokenUsage) -> None:
         usage.total_tokens,
         usage.llm_calls,
     )
+
+
+def summarize_invoke_result(result: Any) -> str:
+    if not isinstance(result, dict):
+        return f"type={type(result).__name__}"
+
+    messages = result.get("messages", [])
+    parts = [f"message_count={len(messages)}"]
+
+    if messages:
+        last = messages[-1]
+        content = getattr(last, "content", None)
+        if content is not None:
+            preview = str(content)[:200].replace("\n", " ")
+            parts.append(f"last_message_preview={preview!r}")
+
+    return " ".join(parts)

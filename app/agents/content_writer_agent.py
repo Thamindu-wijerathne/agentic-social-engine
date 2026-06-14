@@ -5,49 +5,120 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from langchain.agents import create_agent
+
+from app.core.image_urls import filter_public_image_urls
+from app.core.json_utils import extract_json_payload
 from app.core.llm import main_llm
-from app.core.token_usage import TokenUsage, extract_usage_from_message, log_token_usage
+from app.core.token_usage import TokenUsage, extract_usage_from_agent_response, log_token_usage, summarize_invoke_result
 from app.prompts.PromptManager import PromptManager
 
 logger = logging.getLogger(__name__)
 
 TEMP_CONTENT_DIR = Path(__file__).resolve().parent.parent.parent / "temp" / "content"
 
+DEFAULT_CATEGORY_HASHTAGS: dict[str, list[str]] = {
+    "politics": ["#USPolitics", "#BreakingNews", "#TrendingInUS", "#USNews"],
+    "health": ["#USHealth", "#HealthNews", "#TrendingInUS", "#Medicare"],
+    "animals": ["#AnimalNews", "#GoodNews", "#TrendingInUS", "#Wildlife"],
+}
+
 
 class ContentWriterAgent:
     def __init__(self):
+        logger.info("Initializing ContentWriterAgent")
         self.llm = main_llm
-        self.system_prompt = PromptManager.get("agent_prompts", "content_writer_agent_system_prompt")
+        self.agent = self.create_agent()
         self.last_token_usage = TokenUsage()
+        logger.info("ContentWriterAgent ready")
 
-    def _extract_json_payload(self, text: str) -> Any:
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        decoder = json.JSONDecoder()
-        for start_char in ("[", "{"):
-            start = text.find(start_char)
-            while start != -1:
-                try:
-                    obj, _ = decoder.raw_decode(text[start:])
-                    return obj
-                except json.JSONDecodeError:
-                    start = text.find(start_char, start + 1)
-        return None
+    def create_agent(self):
+        logger.debug("Loading system prompt and creating agent graph")
+        system_prompt = PromptManager.get("agent_prompts", "content_writer_agent_system_prompt")
+        logger.info("System prompt loaded (%d chars)", len(system_prompt))
+        return create_agent(
+            self.llm,
+            tools=[],
+            system_prompt=system_prompt,
+        )
 
     @staticmethod
-    def _resolve_picture_url(item: dict[str, Any], research_item: dict[str, Any] | None) -> str:
-        picture_url = str(item.get("picture_url", item.get("image_url", ""))).strip()
-        if picture_url:
-            return picture_url
+    def _extract_last_message_content(response: dict[str, Any]) -> str:
+        messages = response.get("messages", [])
+        if not messages:
+            return ""
+
+        content = getattr(messages[-1], "content", "")
+        if isinstance(content, list):
+            return "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        return str(content)
+
+    @staticmethod
+    def _resolve_picture_urls(item: dict[str, Any], research_item: dict[str, Any] | None) -> list[str]:
+        urls: list[str] = []
+        seen: set[str] = set()
+
+        def add(url: Any) -> None:
+            cleaned = str(url).strip()
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                urls.append(cleaned)
+
+        raw_urls = item.get("picture_urls")
+        if isinstance(raw_urls, list):
+            for url in raw_urls:
+                add(url)
+
+        add(item.get("picture_url"))
+        add(item.get("image_url"))
+
+        raw_image_urls = item.get("image_urls")
+        if isinstance(raw_image_urls, list):
+            for url in raw_image_urls:
+                add(url)
 
         if research_item:
-            img_urls = research_item.get("img_urls") or []
-            if img_urls:
-                return str(img_urls[0]).strip()
-        return ""
+            for url in research_item.get("img_urls") or []:
+                add(url)
+
+        return filter_public_image_urls(urls)
+
+    @staticmethod
+    def _ensure_hashtag(tag: str) -> str:
+        cleaned = re.sub(r"\s+", "", str(tag).strip().lstrip("#"))
+        if not cleaned:
+            return ""
+        return f"#{cleaned}"
+
+    def _normalize_hashtags(
+        self,
+        raw: Any,
+        research_item: dict[str, Any] | None,
+    ) -> list[str]:
+        tags: list[str] = []
+        if isinstance(raw, str):
+            candidates = re.split(r"[\s,]+", raw.strip())
+        elif isinstance(raw, list):
+            candidates = raw
+        else:
+            candidates = []
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            tag = self._ensure_hashtag(candidate)
+            key = tag.lower()
+            if tag and key not in seen:
+                seen.add(key)
+                tags.append(tag)
+
+        if not tags and research_item:
+            category = str(research_item.get("category", "")).lower()
+            tags = list(DEFAULT_CATEGORY_HASHTAGS.get(category, ["#USNews", "#TrendingInUS"]))
+
+        return tags[:8]
 
     def _normalize_items(
         self,
@@ -74,16 +145,18 @@ class ContentWriterAgent:
                 continue
 
             research_item = research_items[index] if index < len(research_items) else None
-            picture_url = self._resolve_picture_url(item, research_item)
-            if not picture_url:
+            picture_urls = self._resolve_picture_urls(item, research_item)
+            if not picture_urls:
                 skipped_no_image.append(title)
-                logger.warning("ContentWriterAgent skipped item without picture_url title=%r", title[:80])
+                logger.warning("ContentWriterAgent skipped item without picture_urls title=%r", title[:80])
                 continue
 
             entry: dict[str, Any] = {
                 "title": title,
                 "description": str(item.get("description", "")).strip(),
-                "picture_url": picture_url,
+                "picture_url": picture_urls[0],
+                "picture_urls": picture_urls,
+                "hashtags": self._normalize_hashtags(item.get("hashtags"), research_item),
             }
             if research_item:
                 category = research_item.get("category")
@@ -136,27 +209,17 @@ class ContentWriterAgent:
         }
 
     def write_content(self, research_items: list[dict[str, Any]]) -> dict[str, Any]:
-        logger.info("ContentWriterAgent start items=%d", len(research_items))
+        logger.info("Agent invoke start items=%d", len(research_items))
         user_payload = json.dumps(research_items, ensure_ascii=False)
-        response = self.llm.invoke(
-            [
-                ("system", self.system_prompt),
-                ("user", user_payload),
-            ]
-        )
-        self.last_token_usage = extract_usage_from_message(response) or TokenUsage()
+        response = self.agent.invoke({
+            "messages": [("user", user_payload)],
+        })
+        self.last_token_usage = extract_usage_from_agent_response(response)
         log_token_usage("ContentWriterAgent", self.last_token_usage)
+        logger.info("Agent invoke done %s", summarize_invoke_result(response))
 
-        content = getattr(response, "content", "")
-        if isinstance(content, list):
-            content = "".join(
-                part.get("text", "") if isinstance(part, dict) else str(part)
-                for part in content
-            )
-        else:
-            content = str(content)
-
-        parsed = self._extract_json_payload(content)
+        content = self._extract_last_message_content(response)
+        parsed = extract_json_payload(content)
         items, skipped_no_image = self._normalize_items(parsed, research_items)
         if not items:
             logger.warning(

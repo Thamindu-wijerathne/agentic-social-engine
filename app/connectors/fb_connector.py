@@ -1,9 +1,11 @@
+import json
 import logging
 import uuid
 from typing import Any
 
 import requests
 
+from app.core.image_urls import filter_public_image_urls
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -61,7 +63,15 @@ class FacebookConnector:
         if not response.ok:
             error = body.get("error", {}) if isinstance(body, dict) else {}
             message = error.get("message", response.text)
-            logger.warning("Facebook post rejected: %s", message)
+            rejected_url = payload.get("url", "")
+            if rejected_url:
+                logger.warning(
+                    "Facebook post rejected url=%s: %s",
+                    str(rejected_url)[:160],
+                    message,
+                )
+            else:
+                logger.warning("Facebook post rejected: %s", message)
             if "publish_actions" in message.lower():
                 raise FacebookConnectorError(
                     "Facebook rejected the token: use a Page Access Token with pages_manage_posts, "
@@ -116,27 +126,156 @@ class FacebookConnector:
             raise FacebookConnectorError("link cannot be empty")
         return self._post("feed", {"message": message, "link": link})
 
-    def post_photo(self, message: str, image_url: str) -> dict[str, Any]:
+    def post_photo(
+        self,
+        message: str,
+        image_url: str,
+        *,
+        scheduled_publish_time: int | None = None,
+    ) -> dict[str, Any]:
         """Publish a post with a photo from a public image URL."""
         if not image_url.strip():
             raise FacebookConnectorError("image_url cannot be empty")
+        if scheduled_publish_time:
+            return self._post_scheduled_content(message, [image_url.strip()], scheduled_publish_time)
         return self._post("photos", {"caption": message, "url": image_url})
+
+    def _upload_unpublished_photos(self, image_urls: list[str]) -> list[str]:
+        media_ids: list[str] = []
+        for index, url in enumerate(image_urls):
+            try:
+                body = self._post("photos", {"url": url, "published": "false"})
+            except FacebookConnectorError as exc:
+                logger.warning(
+                    "Facebook skipped photo #%d url=%r: %s",
+                    index + 1,
+                    url[:160],
+                    exc,
+                )
+                continue
+            photo_id = body.get("id")
+            if not photo_id:
+                logger.warning("Facebook skipped photo #%d url=%r: missing photo id", index + 1, url[:160])
+                continue
+            media_ids.append(str(photo_id))
+        if not media_ids:
+            raise FacebookConnectorError("No valid photo URLs could be uploaded to Facebook")
+        return media_ids
+
+    def _post_scheduled_content(
+        self,
+        message: str,
+        image_urls: list[str],
+        scheduled_publish_time: int,
+    ) -> dict[str, Any]:
+        urls = [url.strip() for url in image_urls if url and str(url).strip()]
+        urls = filter_public_image_urls(urls)
+        if not urls:
+            raise FacebookConnectorError("image_urls cannot be empty")
+
+        if self.dry_run:
+            post_id = _mock_facebook_post_id()
+            logger.info(
+                "Facebook dry_run scheduled count=%d id=%s time=%s",
+                len(urls),
+                post_id,
+                scheduled_publish_time,
+            )
+            return {
+                "id": post_id,
+                "photo_count": len(urls),
+                "scheduled_publish_time": scheduled_publish_time,
+                "scheduled": True,
+            }
+
+        media_ids = self._upload_unpublished_photos(urls)
+        payload: dict[str, Any] = {
+            "message": message,
+            "published": "false",
+            "scheduled_publish_time": str(scheduled_publish_time),
+            "unpublished_content_type": "SCHEDULED",
+        }
+        for index, photo_id in enumerate(media_ids):
+            payload[f"attached_media[{index}]"] = json.dumps({"media_fbid": photo_id})
+
+        result = self._post("feed", payload)
+        result["photo_count"] = len(media_ids)
+        result["photo_ids"] = media_ids
+        result["scheduled_publish_time"] = scheduled_publish_time
+        result["scheduled"] = True
+        return result
+
+    def post_multi_photo(
+        self,
+        message: str,
+        image_urls: list[str],
+        *,
+        scheduled_publish_time: int | None = None,
+    ) -> dict[str, Any]:
+        """Publish one feed post with multiple photos from public URLs."""
+        urls = [url.strip() for url in image_urls if url and str(url).strip()]
+        urls = filter_public_image_urls(urls)
+        if not urls:
+            raise FacebookConnectorError("image_urls cannot be empty")
+
+        if scheduled_publish_time:
+            return self._post_scheduled_content(message, urls, scheduled_publish_time)
+
+        if self.dry_run:
+            post_id = _mock_facebook_post_id()
+            logger.info("Facebook dry_run multi_photo count=%d id=%s", len(urls), post_id)
+            return {"id": post_id, "photo_count": len(urls)}
+
+        media_ids = self._upload_unpublished_photos(urls)
+        payload: dict[str, Any] = {"message": message}
+        for index, photo_id in enumerate(media_ids):
+            payload[f"attached_media[{index}]"] = json.dumps({"media_fbid": photo_id})
+
+        result = self._post("feed", payload)
+        result["photo_count"] = len(media_ids)
+        result["photo_ids"] = media_ids
+        return result
 
     def post_content(
         self,
         title: str,
         description: str,
         picture_url: str | None = None,
+        picture_urls: list[str] | None = None,
+        hashtags: list[str] | None = None,
+        scheduled_publish_time: int | None = None,
     ) -> dict[str, Any]:
-        """Publish content-writer output (title, description, required picture)."""
-        if not picture_url or not picture_url.strip():
+        """Publish content-writer output with one or more photos."""
+        urls = filter_public_image_urls(list(picture_urls or []))
+
+        primary = str(picture_url or "").strip()
+        if primary:
+            primary_urls = filter_public_image_urls([primary])
+            if primary_urls and primary_urls[0] not in urls:
+                urls.insert(0, primary_urls[0])
+
+        if not urls:
             raise FacebookConnectorError("picture_url is required for Facebook posts")
 
         parts = [title.strip()]
         if description.strip():
             parts.append(description.strip())
+        if hashtags:
+            tag_line = " ".join(
+                tag if tag.startswith("#") else f"#{tag.lstrip('#')}"
+                for tag in hashtags
+                if str(tag).strip()
+            )
+            if tag_line:
+                parts.append(tag_line)
         message = "\n\n".join(parts)
-        return self.post_photo(message, picture_url.strip())
+
+        if scheduled_publish_time:
+            return self._post_scheduled_content(message, urls, scheduled_publish_time)
+
+        if len(urls) == 1:
+            return self.post_photo(message, urls[0])
+        return self.post_multi_photo(message, urls)
 
     def post_article(
         self,

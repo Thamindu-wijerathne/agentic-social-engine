@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.content_writer_agent import ContentWriterAgent
 from app.agents.publishing_agent import PublishingAgent
-from app.agents.reseach_agent import ReseachAgent
+from app.agents.research_agent import ResearchAgent
 from app.agents.trend_agent import TrendAgent
 from app.connectors.fb_connector import FacebookConnectorError
 from app.core.token_usage import PipelineTokenUsage, log_token_usage
@@ -15,7 +15,9 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+
 class PipelineRequest(BaseModel):
+    """Dev/test pipeline request — publishing off by default."""
     trend_prompt: str | None = Field(
         default=None,
         description="Optional override for the trend agent input prompt",
@@ -26,7 +28,31 @@ class PipelineRequest(BaseModel):
     )
     publish_dry_run: bool = Field(
         default=False,
-        description="If true, mock Facebook publish (no real API call). Useful for testing.",
+        description="If true with publish, mock Facebook publish (no real API call)",
+    )
+    schedule_posts: bool = Field(
+        default=True,
+        description="If true with publish, schedule posts at US slot times instead of posting immediately",
+    )
+
+
+class PipelineProductionRequest(BaseModel):
+    """Production pipeline request — real Facebook publish + schedule by default."""
+    trend_prompt: str | None = Field(
+        default=None,
+        description="Optional override for the trend agent input prompt",
+    )
+    publish: bool = Field(
+        default=True,
+        description="Publish content to Facebook after content writer step",
+    )
+    publish_dry_run: bool = Field(
+        default=False,
+        description="Mock Facebook publish (no real API call)",
+    )
+    schedule_posts: bool = Field(
+        default=True,
+        description="Schedule posts at US slot times (8am, 11am, 2pm, 5pm, 8pm)",
     )
 
 
@@ -70,12 +96,12 @@ class ContentPipeline:
     def __init__(
         self,
         trend_agent: TrendAgent | None = None,
-        reseach_agent: ReseachAgent | None = None,
+        research_agent: ResearchAgent | None = None,
         content_writer: ContentWriterAgent | None = None,
         publishing_agent: PublishingAgent | None = None,
     ):
         self.trend_agent = trend_agent or TrendAgent()
-        self.reseach_agent = reseach_agent or ReseachAgent()
+        self.research_agent = research_agent or ResearchAgent()
         self.content_writer = content_writer or ContentWriterAgent()
         self._publishing_agent = publishing_agent
 
@@ -84,31 +110,34 @@ class ContentPipeline:
         trend_prompt: str | None = None,
         publish: bool = False,
         publish_dry_run: bool = False,
+        schedule_posts: bool = True,
         run_source: str = "pipeline",
     ) -> PipelineResult:
         prompt = trend_prompt or DEFAULT_TREND_PROMPT
-        steps = ["trend", "reseach", "content_writer"]
+        steps = ["trend", "research", "content_writer"]
 
-        logger.info("ContentPipeline start publish=%s", publish)
+        logger.info(
+            "ContentPipeline start publish=%s dry_run=%s schedule=%s",
+            publish,
+            publish_dry_run,
+            schedule_posts,
+        )
         usage_tracker = PipelineTokenUsage()
 
         trends = self.trend_agent.run_agent(prompt)
         usage_tracker.add_agent("trend", self.trend_agent.last_token_usage)
         logger.info("ContentPipeline trend done count=%d", len(trends))
 
-        research = self.reseach_agent.reseach_trends(trends)
-        usage_tracker.add_agent("reseach", self.reseach_agent.last_token_usage)
-        logger.info("ContentPipeline reseach done count=%d", len(research))
+        research = self.research_agent.research_trends(trends)
+        usage_tracker.add_agent("research", self.research_agent.last_token_usage)
+        logger.info("ContentPipeline research done count=%d", len(research))
 
         content = self.content_writer.write_content(research)
         usage_tracker.add_agent("content_writer", self.content_writer.last_token_usage)
         logger.info("ContentPipeline content_writer done batch_id=%s", content.get("batch_id"))
 
         token_summary = usage_tracker.to_dict()
-        log_token_usage(
-            "ContentPipeline total",
-            usage_tracker.total,
-        )
+        log_token_usage("ContentPipeline total", usage_tracker.total)
         logger.info("ContentPipeline estimated_cost_usd=%s", token_summary["estimated_cost_usd"])
 
         publishing: dict[str, Any] | None = None
@@ -119,9 +148,14 @@ class ContentPipeline:
                 publishing = publisher.publish_items(
                     content.get("items", []),
                     source_batch_id=content.get("batch_id"),
+                    schedule=schedule_posts,
                 )
                 steps.append("publishing")
-                logger.info("ContentPipeline publish done published=%d", publishing.get("published", 0))
+                logger.info(
+                    "ContentPipeline publish done published=%d scheduled=%d",
+                    publishing.get("published", 0),
+                    publishing.get("scheduled", 0),
+                )
             except FacebookConnectorError as exc:
                 publishing_error = str(exc)
                 logger.warning("ContentPipeline publish failed: %s", publishing_error)
@@ -156,11 +190,13 @@ def run_content_pipeline(
     trend_prompt: str | None = None,
     publish: bool = False,
     publish_dry_run: bool = False,
+    schedule_posts: bool = True,
     run_source: str = "pipeline",
 ) -> dict[str, Any]:
     return ContentPipeline().run(
         trend_prompt=trend_prompt,
         publish=publish,
         publish_dry_run=publish_dry_run,
+        schedule_posts=schedule_posts,
         run_source=run_source,
     ).to_dict()

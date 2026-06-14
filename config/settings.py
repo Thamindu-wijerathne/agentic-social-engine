@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     facebook_app_secret: str | None = None
     facebook_access_token: str | None = None
     facebook_page_id: str | None = None
+    facebook_schedule_timezone: str = "America/New_York"
+    facebook_schedule_hours: str = "8,11,14,17,20"
+
+    # --- Supabase ---
+    SUPABASE_URL: str | None = None
+    SUPABASE_API_KEY: str | None = None
+    SUPABASE_SECRET_KEY: str | None = None
 
     # --- Supabase ---
     SUPABASE_URL: str | None = None
@@ -33,6 +40,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=_ENV_FILE,
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
 

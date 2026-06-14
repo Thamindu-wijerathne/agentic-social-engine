@@ -8,7 +8,8 @@ class PromptManager:
 
     @classmethod
     def get(cls, section: str, name: str) -> str:
-        prompt_path = Path("app/prompts") / section / f"{name}.txt"
+        base_dir = Path(__file__).resolve().parent
+        prompt_path = base_dir / section / f"{name}.txt"
         logger.debug("Loading prompt path=%s", prompt_path)
 
         if not prompt_path.exists():

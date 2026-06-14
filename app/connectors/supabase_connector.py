@@ -50,16 +50,6 @@ class SupabaseConnector:
             )
         return SupabaseConnectorError(str(exc))
 
-    def insert(self, table: str, record: dict[str, Any]) -> dict[str, Any]:
-        try:
-            response = self.client.table(table).insert(record).execute()
-        except httpx.ConnectError as exc:
-            raise self._wrap_request_error(exc) from exc
-        rows = response.data or []
-        if not rows:
-            raise SupabaseConnectorError(f"Insert into {table} returned no rows")
-        return rows[0]
-
     def select(
         self,
         table: str,
@@ -86,6 +76,16 @@ class SupabaseConnector:
     def select_one(self, table: str, filters: dict[str, Any], columns: str = "*") -> dict[str, Any] | None:
         rows = self.select(table, columns=columns, filters=filters, limit=1)
         return rows[0] if rows else None
+
+    def insert(self, table: str, record: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = self.client.table(table).insert(record).execute()
+        except httpx.ConnectError as exc:
+            raise self._wrap_request_error(exc) from exc
+        rows = response.data or []
+        if not rows:
+            raise SupabaseConnectorError(f"Insert into {table} returned no rows")
+        return rows[0]
 
     def update(
         self,

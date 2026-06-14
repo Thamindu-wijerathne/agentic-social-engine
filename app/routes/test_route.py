@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.content_writer_agent import ContentWriterAgent
 from app.agents.publishing_agent import PublishingAgent
-from app.agents.reseach_agent import ReseachAgent
+from app.agents.research_agent import ResearchAgent
 from app.agents.trend_agent import TrendAgent
 from app.connectors.fb_connector import FacebookConnectorError
 from app.pipelines.content_pipeline import DEFAULT_TREND_PROMPT, PipelineRequest, run_content_pipeline
@@ -25,6 +25,10 @@ class PublishTestRequest(BaseModel):
         description="Or publish from a saved content batch id",
         examples=["20260611_104934"],
     )
+    dry_run: bool = Field(
+        default=True,
+        description="If true, mock Facebook publish (no real API call)",
+    )
 
 
 @router.get("/trend-agent")
@@ -34,17 +38,27 @@ def test_trend_agent():
     trend_agent = TrendAgent()
     response = trend_agent.run_agent(DEFAULT_TREND_PROMPT)
     logger.info("/test/trend-agent done count=%d", len(response))
-    return {"agent": "trend", "count": len(response), "items": response, "token_usage": trend_agent.last_token_usage.to_dict()}
+    return {
+        "agent": "trend",
+        "count": len(response),
+        "items": response,
+        "token_usage": trend_agent.last_token_usage.to_dict(),
+    }
 
 
-@router.post("/reseach-agent")
-def test_reseach_agent(trends: list[dict[str, Any]] = Body(...)):
-    """Test ReseachAgent only. Body: trend agent output."""
-    logger.info("/test/reseach-agent start trends=%d", len(trends))
-    reseach_agent = ReseachAgent()
-    response = reseach_agent.reseach_trends(trends)
-    logger.info("/test/reseach-agent done count=%d", len(response))
-    return {"agent": "reseach", "count": len(response), "items": response, "token_usage": reseach_agent.last_token_usage.to_dict()}
+@router.post("/research-agent")
+def test_research_agent(trends: list[dict[str, Any]] = Body(...)):
+    """Test ResearchAgent only. Body: trend agent output."""
+    logger.info("/test/research-agent start trends=%d", len(trends))
+    research_agent = ResearchAgent()
+    response = research_agent.research_trends(trends)
+    logger.info("/test/research-agent done count=%d", len(response))
+    return {
+        "agent": "research",
+        "count": len(response),
+        "items": response,
+        "token_usage": research_agent.last_token_usage.to_dict(),
+    }
 
 
 @router.post("/content-writer-agent")
@@ -65,7 +79,7 @@ def test_publishing_agent(body: PublishTestRequest):
         raise HTTPException(status_code=400, detail="Provide either items or batch_id")
 
     try:
-        publisher = PublishingAgent(dry_run=True)
+        publisher = PublishingAgent(dry_run=body.dry_run)
         if body.batch_id:
             result = publisher.publish_batch(body.batch_id)
         else:
@@ -83,12 +97,17 @@ def test_publishing_agent(body: PublishTestRequest):
 def test_pipeline(body: PipelineRequest | None = None):
     """Test full pipeline via ContentPipeline service."""
     request = body or PipelineRequest()
-    logger.info("/test/pipeline start publish=%s", request.publish)
+    logger.info(
+        "/test/pipeline start publish=%s dry_run=%s",
+        request.publish,
+        request.publish_dry_run,
+    )
     try:
         result = run_content_pipeline(
             trend_prompt=request.trend_prompt,
             publish=request.publish,
-            publish_dry_run=request.publish,
+            publish_dry_run=request.publish_dry_run,
+            schedule_posts=request.schedule_posts,
             run_source="test_pipeline",
         )
     except ValueError as exc:
